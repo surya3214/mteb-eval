@@ -1,1 +1,224 @@
-# mteb-eval
+# MTEB Offline Eval Toolkit
+
+Prefetch **MTEB(eng, v2) STS + Retrieval** datasets (19 tasks) on an internet-connected machine, transfer the Hugging Face cache to a GPU/offline host, and evaluate embedding models from **Hub IDs** or **local checkpoint folders**.
+
+Pinned dependencies in [`requirements.txt`](requirements.txt) keep scores reproducible across machines.
+
+## Quick start
+
+```bash
+pip install -r requirements.txt
+# Install torch for your CUDA version — see requirements-gpu.txt
+```
+
+## Two-machine workflow
+
+### Step 1 — Internet machine (prefetch datasets)
+
+```bash
+pip install -r requirements.txt
+
+python -m mteb_eval.prefetch \
+  --cache-dir /data/hf_cache \
+  --models Qwen/Qwen3-Embedding-4B
+
+# Transfer cache to GPU machine
+rsync -av /data/hf_cache/ gpu-host:/data/hf_cache/
+```
+
+Optional: freeze the exact environment after install:
+
+```bash
+pip freeze > requirements-lock.txt
+```
+
+### Step 2 — GPU machine (evaluate, Hub model)
+
+```bash
+pip install -r requirements.txt   # same versions as prefetch machine
+
+python -m mteb_eval.evaluate \
+  --cache-dir /data/hf_cache \
+  --offline \
+  --model Qwen/Qwen3-Embedding-4B \
+  --task-types STS Retrieval \
+  --output-dir results/qwen3-4b \
+  --batch-size 32 \
+  --corpus-batch-size 4 \
+  --device cuda
+```
+
+### Step 2b — GPU machine (evaluate, local fine-tuned model)
+
+Copy the model separately from the HF cache (training output or `huggingface-cli download --local-dir`):
+
+```bash
+rsync -av ./harrier-ft/ gpu-host:/data/models/harrier-ft/
+
+python -m mteb_eval.evaluate \
+  --cache-dir /data/hf_cache \
+  --offline \
+  --model-path /data/models/harrier-ft \
+  --model-type harrier \
+  --task-types STS Retrieval \
+  --output-dir results/harrier-ft \
+  --device cuda
+```
+
+### Alternative — same machine, default cache
+
+On a machine with internet access, skip cache relocation:
+
+```bash
+python -m mteb_eval.evaluate \
+  --default-cache \
+  --model microsoft/harrier-oss-v1-0.6b \
+  --output-dir results/harrier \
+  --device cuda
+```
+
+## Cache modes
+
+| Flag | Behavior |
+|------|----------|
+| `--cache-dir PATH` | Portable cache: sets `HF_HOME`, `HF_HUB_CACHE`, `HF_DATASETS_CACHE`, `TRANSFORMERS_CACHE` |
+| `--default-cache` | No env override; uses `~/.cache/huggingface` |
+| `--offline` | Sets `HF_DATASETS_OFFLINE`, `HF_HUB_OFFLINE`, `TRANSFORMERS_OFFLINE` (local `--model-path` still works) |
+
+**Important:** `configure_cache()` runs at CLI startup before any Hugging Face imports. Do not import `mteb`, `datasets`, or `transformers` before calling it in custom scripts.
+
+## Model loading
+
+### Hub models (`--model`)
+
+Uses `mteb.get_model()` / MTEB registry when available (required for correct **Qwen3** scores — see [mteb#2867](https://github.com/embeddings-benchmark/mteb/issues/2867)).
+
+### Local folders (`--model-path`)
+
+| Model family | Example `--model-path` | `--model-type` | Notes |
+|--------------|------------------------|----------------|-------|
+| Qwen3 | `/data/models/qwen3-4b` | `qwen3` | Pass `--hub-id Qwen/Qwen3-Embedding-4B` for MTEB instruct wrapper |
+| Harrier | `/data/models/harrier-ft` | `harrier` | Needs `config_sentence_transformers.json` |
+| EuroBERT ST | `/data/models/eurobert-st` | `sentence-transformer` | `trust_remote_code=True` |
+| EuroBERT base | `/data/models/eurobert-210m` | `eurobert-base` | Custom mean-pool wrapper; not leaderboard-comparable |
+| Generic ST | any `model.save()` folder | `auto` or `sentence-transformer` | |
+
+`--model` and `--model-path` are mutually exclusive. A directory passed to `--model` is treated as a local path.
+
+### Export Hub model to local folder
+
+```bash
+huggingface-cli download Qwen/Qwen3-Embedding-4B --local-dir /data/models/qwen3-4b
+rsync -av /data/models/qwen3-4b gpu-host:/data/models/qwen3-4b
+```
+
+Models and datasets can live in different directories.
+
+## Example commands by model
+
+**Qwen3-4B (Hub, offline):**
+
+```bash
+python -m mteb_eval.evaluate \
+  --cache-dir /data/hf_cache --offline \
+  --model Qwen/Qwen3-Embedding-4B \
+  --query-batch-size 32 --corpus-batch-size 4 \
+  --output-dir results/qwen3-4b --device cuda
+```
+
+**Qwen3 local checkpoint:**
+
+```bash
+python -m mteb_eval.evaluate \
+  --cache-dir /data/hf_cache --offline \
+  --model-path /data/models/qwen3-4b-local \
+  --hub-id Qwen/Qwen3-Embedding-4B \
+  --model-type qwen3 \
+  --output-dir results/qwen3-local --device cuda
+```
+
+**Harrier (Hub):**
+
+```bash
+python -m mteb_eval.evaluate \
+  --cache-dir /data/hf_cache --offline \
+  --model microsoft/harrier-oss-v1-0.6b \
+  --output-dir results/harrier --device cuda
+```
+
+**EuroBERT ST fine-tune (local):**
+
+```bash
+python -m mteb_eval.evaluate \
+  --default-cache \
+  --model-path ./checkpoints/eurobert-st \
+  --model-type sentence-transformer \
+  --output-dir results/eurobert-local
+```
+
+## Prefetch CLI
+
+```bash
+python -m mteb_eval.prefetch --cache-dir /data/hf_cache
+python -m mteb_eval.prefetch --cache-dir /data/hf_cache --tasks BIOSSES STS12
+python -m mteb_eval.prefetch --default-cache --models microsoft/harrier-oss-v1-0.6b
+```
+
+Shell wrappers: [`scripts/prefetch.sh`](scripts/prefetch.sh), [`scripts/evaluate.sh`](scripts/evaluate.sh).
+
+## Tasks (19 total)
+
+**Retrieval (10):** ArguAna, CQADupstackGamingRetrieval, CQADupstackUnixRetrieval, ClimateFEVERHardNegatives, FEVERHardNegatives, FiQA2018, HotpotQAHardNegatives, SCIDOCS, TRECCOVID, Touche2020Retrieval.v3
+
+**STS (9):** BIOSSES, SICK-R, STS12, STS13, STS14, STS15, STSBenchmark, STS17, STS22.v2
+
+Manifest: [`mteb_eval/manifests/eng_v2_sts_retrieval.json`](mteb_eval/manifests/eng_v2_sts_retrieval.json) (~1–1.5 GB datasets).
+
+## Evaluate CLI options
+
+```
+--model / --model-path     Model source (required, mutually exclusive)
+--hub-id                   Canonical Hub id for local Qwen3
+--model-type               auto | qwen3 | harrier | sentence-transformer | eurobert-base
+--cache-dir / --default-cache
+--offline
+--benchmark                Default: MTEB(eng, v2)
+--task-types               Default: STS Retrieval
+--tasks                    Optional subset
+--output-dir               Results + summary.json (required)
+--batch-size / --query-batch-size / --corpus-batch-size
+--device                   cuda, cpu, mps
+--overwrite                only-missing | always | never
+```
+
+## Troubleshooting
+
+- **Score mismatch across machines:** Use identical `mteb`, `sentence-transformers`, and `transformers` versions from `requirements.txt`.
+- **Dataset not found offline:** Run `prefetch` on the internet machine first; verify `rsync` completed.
+- **Wrong FEVER/Hotpot size (~3 GB):** The toolkit uses v2 hard-negative repos (`FEVERHardNegatives`, `HotpotQAHardNegatives`), not full `mteb/fever`.
+- **Local folder load fails:** Folder must contain ST artifacts (`modules.json`, `config_sentence_transformers.json`) or transformers weights (`config.json` + `*.safetensors`).
+- **Qwen3 local scores differ:** Pass `--hub-id` so the MTEB instruct wrapper is applied.
+- **Hub id passed to `--model-path`:** Use `--model <repo_id>` instead; `--model-path` must be an existing directory.
+
+## Tests
+
+```bash
+pytest tests/ -v
+```
+
+## Project layout
+
+```
+mteb_eval/
+  cache.py           HF cache / offline env setup
+  tasks.py           Task resolution + manifest validation
+  prefetch.py        Dataset (+ optional model) download CLI
+  evaluate.py        Evaluation CLI
+  model_loader.py    Hub + local model loading
+  manifests/         Static task manifest
+scripts/
+  prefetch.sh
+  evaluate.sh
+tests/
+  test_smoke.py
+```

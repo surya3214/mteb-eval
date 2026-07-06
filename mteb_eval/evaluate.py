@@ -1,0 +1,198 @@
+"""Evaluate embedding models on MTEB(eng, v2) STS + Retrieval tasks."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import sys
+import time
+from pathlib import Path
+
+from mteb_eval.cache import configure_cache
+from mteb_eval.model_loader import load_embedding_model, resolve_model_source
+from mteb_eval.tasks import resolve_tasks
+
+logger = logging.getLogger(__name__)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Evaluate an embedding model on MTEB STS + Retrieval tasks.",
+    )
+
+    cache = parser.add_mutually_exclusive_group(required=True)
+    cache.add_argument("--cache-dir", type=str, help="Portable HF cache root.")
+    cache.add_argument(
+        "--default-cache",
+        action="store_true",
+        help="Use system default ~/.cache/huggingface.",
+    )
+
+    model = parser.add_mutually_exclusive_group(required=True)
+    model.add_argument("--model", type=str, help="Hugging Face Hub model id.")
+    model.add_argument(
+        "--model-path",
+        type=str,
+        help="Absolute path to a local model checkpoint folder.",
+    )
+
+    parser.add_argument(
+        "--hub-id",
+        type=str,
+        default=None,
+        help="Canonical Hub id for local Qwen3 checkpoints (MTEB instruct wrapper).",
+    )
+    parser.add_argument(
+        "--model-type",
+        choices=["auto", "qwen3", "harrier", "sentence-transformer", "eurobert-base"],
+        default="auto",
+        help="Model family preset (default: auto).",
+    )
+    parser.add_argument("--offline", action="store_true", help="Enable HF offline mode.")
+    parser.add_argument(
+        "--benchmark",
+        default="MTEB(eng, v2)",
+        help="MTEB benchmark (default: MTEB(eng, v2)).",
+    )
+    parser.add_argument(
+        "--task-types",
+        nargs="+",
+        default=["STS", "Retrieval"],
+        help="Task types to evaluate.",
+    )
+    parser.add_argument("--tasks", nargs="+", default=None, help="Optional task subset.")
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        required=True,
+        help="Directory for MTEB result cache and summary JSON.",
+    )
+    parser.add_argument("--device", type=str, default=None, help="Device (cuda, cpu, mps).")
+    parser.add_argument("--batch-size", type=int, default=32, help="Default encode batch size.")
+    parser.add_argument("--query-batch-size", type=int, default=None, help="Query batch size.")
+    parser.add_argument(
+        "--corpus-batch-size",
+        type=int,
+        default=None,
+        help="Corpus batch size (use 1-4 for large decoder embedders).",
+    )
+    parser.add_argument(
+        "--overwrite",
+        choices=["only-missing", "always", "never"],
+        default="only-missing",
+        help="MTEB result cache overwrite strategy.",
+    )
+    parser.add_argument("-v", "--verbose", action="store_true")
+    return parser
+
+
+def _build_encode_kwargs(args: argparse.Namespace) -> dict:
+    kwargs: dict = {"batch_size": args.batch_size}
+    if args.query_batch_size is not None:
+        kwargs["query_batch_size"] = args.query_batch_size
+    if args.corpus_batch_size is not None:
+        kwargs["corpus_batch_size"] = args.corpus_batch_size
+    return kwargs
+
+
+def _print_summary(results, timings: dict[str, float]) -> None:
+    print("\n" + "=" * 72)
+    print(f"{'Task':<35} {'Score':>12} {'Time (s)':>10}")
+    print("-" * 72)
+    for task_result in results.task_results:
+        name = task_result.task_name
+        main_score = task_result.get_score()
+        elapsed = timings.get(name, 0.0)
+        score_str = f"{main_score:.4f}" if main_score is not None else "n/a"
+        print(f"{name:<35} {score_str:>12} {elapsed:>10.1f}")
+    print("=" * 72)
+    total = sum(timings.values())
+    print(f"Total evaluation time: {total:.1f}s ({total / 60:.1f} min)")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+    )
+
+    configure_cache(
+        cache_dir=args.cache_dir,
+        default_cache=args.default_cache,
+        offline=args.offline,
+    )
+
+    source = resolve_model_source(
+        model=args.model,
+        model_path=args.model_path,
+        hub_id=args.hub_id,
+    )
+    if source.hub_id is None and args.hub_id:
+        source = type(source)(path=source.path, is_local=source.is_local, hub_id=args.hub_id)
+
+    import mteb
+    from mteb.cache import ResultCache
+
+    output_dir = Path(args.output_dir).expanduser().resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    logger.info("Loading model from %s (local=%s)", source.path, source.is_local)
+    model = load_embedding_model(
+        source,
+        model_type=args.model_type,
+        device=args.device,
+    )
+
+    tasks = resolve_tasks(
+        benchmark=args.benchmark,
+        task_types=args.task_types,
+        task_names=args.tasks,
+    )
+    logger.info("Evaluating %d task(s)...", len(tasks))
+
+    encode_kwargs = _build_encode_kwargs(args)
+    result_cache = ResultCache(cache_path=output_dir)
+
+    timings: dict[str, float] = {}
+    all_task_results = []
+    start_all = time.perf_counter()
+
+    for task in tasks:
+        t0 = time.perf_counter()
+        logger.info("Running task: %s", task.metadata.name)
+        task_result = mteb.evaluate(
+            model,
+            [task],
+            encode_kwargs=encode_kwargs,
+            cache=result_cache,
+            overwrite_strategy=args.overwrite,
+            show_progress_bar=not args.verbose,
+        )
+        timings[task.metadata.name] = time.perf_counter() - t0
+        all_task_results.extend(task_result.task_results)
+
+    elapsed_all = time.perf_counter() - start_all
+    logger.info("All tasks finished in %.1fs", elapsed_all)
+
+    from mteb.results.model_result import ModelResult
+
+    combined = ModelResult(
+        model_name=source.hub_id or source.path,
+        model_revision=None,
+        task_results=all_task_results,
+    )
+    summary_path = output_dir / "summary.json"
+    with summary_path.open("w", encoding="utf-8") as f:
+        json.dump(combined.model_dump(), f, indent=2, default=str)
+    logger.info("Wrote summary to %s", summary_path)
+    _print_summary(combined, timings)
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
