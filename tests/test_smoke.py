@@ -6,12 +6,35 @@ import json
 import os
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from mteb_eval.cache import configure_cache
+from mteb_eval.evaluate import _print_summary
 from mteb_eval.model_loader import resolve_model_source, validate_local_checkpoint
 from mteb_eval.tasks import expected_task_names, load_manifest, resolve_tasks, validate_against_manifest
+from mteb.results.model_result import ModelResult
+from mteb.results.task_result import TaskError, TaskResult
+
+
+def _sample_task_result(name: str = "BIOSSES") -> TaskResult:
+    return TaskResult(
+        task_name=name,
+        dataset_revision="rev",
+        mteb_version="2.18.0",
+        evaluation_time=1.0,
+        scores={
+            "test": [
+                {
+                    "main_score": 0.1,
+                    "hf_subset": "default",
+                    "languages": ["eng-Latn"],
+                }
+            ]
+        },
+    )
 
 
 def test_manifest_has_19_tasks():
@@ -116,3 +139,88 @@ def test_validate_local_checkpoint_transformers_layout(tmp_path: Path):
     (model_dir / "model.safetensors").write_bytes(b"")
     layout = validate_local_checkpoint(model_dir)
     assert layout.kind == "transformers"
+
+
+def test_print_summary_includes_failed_tasks(capsys):
+    task_result = MagicMock()
+    task_result.task_name = "BIOSSES"
+    task_result.get_score.return_value = 0.5
+    results = SimpleNamespace(task_results=[task_result])
+    _print_summary(
+        results,
+        {"BIOSSES": 1.0, "STS12": 0.5},
+        failures={"STS12": "dataset not found"},
+    )
+    out = capsys.readouterr().out
+    assert "BIOSSES" in out
+    assert "0.5000" in out
+    assert "STS12" in out
+    assert "FAILED" in out
+    assert "dataset not found" in out
+    assert "Failed tasks: 1" in out
+
+
+def test_continue_on_error_collects_failures(tmp_path: Path):
+    from mteb_eval import evaluate as evaluate_module
+
+    ok_task = MagicMock()
+    ok_task.metadata.name = "BIOSSES"
+    bad_task = MagicMock()
+    bad_task.metadata.name = "STS12"
+
+    ok_result = SimpleNamespace(
+        task_results=[_sample_task_result("BIOSSES")],
+        exceptions=None,
+    )
+    fail_result = SimpleNamespace(
+        task_results=[],
+        exceptions=[TaskError(task_name="STS12", exception="boom")],
+    )
+
+    def fake_evaluate(model, tasks, **kwargs):
+        task = tasks[0]
+        if task.metadata.name == "STS12":
+            return fail_result
+        return ok_result
+
+    args = SimpleNamespace(
+        cache_dir=None,
+        default_cache=True,
+        model="mteb/baseline-random-encoder",
+        model_path=None,
+        hub_id=None,
+        model_type="auto",
+        offline=False,
+        benchmark="MTEB(eng, v2)",
+        task_types=["STS"],
+        tasks=None,
+        output_dir=str(tmp_path / "out"),
+        device="cpu",
+        batch_size=8,
+        query_batch_size=None,
+        corpus_batch_size=None,
+        overwrite="only-missing",
+        continue_on_error=True,
+        verbose=False,
+    )
+
+    with (
+        patch.object(evaluate_module, "build_parser") as mock_parser,
+        patch.object(evaluate_module, "configure_cache"),
+        patch.object(evaluate_module, "resolve_model_source") as mock_source,
+        patch.object(evaluate_module, "load_embedding_model", return_value=MagicMock()),
+        patch.object(evaluate_module, "resolve_tasks", return_value=[ok_task, bad_task]),
+        patch("mteb.evaluate", side_effect=fake_evaluate),
+    ):
+        mock_parser.return_value.parse_args.return_value = args
+        mock_source.return_value = SimpleNamespace(
+            path="mteb/baseline-random-encoder",
+            is_local=False,
+            hub_id="mteb/baseline-random-encoder",
+        )
+        exit_code = evaluate_module.main([])
+
+    assert exit_code == 1
+    summary = json.loads((tmp_path / "out" / "summary.json").read_text(encoding="utf-8"))
+    assert len(summary["task_results"]) == 1
+    assert summary["exceptions"][0]["task_name"] == "STS12"

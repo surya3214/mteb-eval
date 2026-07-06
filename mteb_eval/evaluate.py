@@ -83,6 +83,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="only-missing",
         help="MTEB result cache overwrite strategy.",
     )
+    parser.add_argument(
+        "--continue-on-error",
+        action="store_true",
+        help="Log task failures and continue with remaining tasks (default: stop on first error).",
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     return parser
 
@@ -96,19 +101,35 @@ def _build_encode_kwargs(args: argparse.Namespace) -> dict:
     return kwargs
 
 
-def _print_summary(results, timings: dict[str, float]) -> None:
+def _print_summary(
+    results,
+    timings: dict[str, float],
+    *,
+    failures: dict[str, str] | None = None,
+) -> None:
+    failures = failures or {}
     print("\n" + "=" * 72)
     print(f"{'Task':<35} {'Score':>12} {'Time (s)':>10}")
     print("-" * 72)
+    printed: set[str] = set()
     for task_result in results.task_results:
         name = task_result.task_name
+        printed.add(name)
         main_score = task_result.get_score()
         elapsed = timings.get(name, 0.0)
         score_str = f"{main_score:.4f}" if main_score is not None else "n/a"
         print(f"{name:<35} {score_str:>12} {elapsed:>10.1f}")
+    for name, error in failures.items():
+        if name in printed:
+            continue
+        elapsed = timings.get(name, 0.0)
+        print(f"{name:<35} {'FAILED':>12} {elapsed:>10.1f}")
+        print(f"  error: {error}")
     print("=" * 72)
     total = sum(timings.values())
     print(f"Total evaluation time: {total:.1f}s ({total / 60:.1f} min)")
+    if failures:
+        print(f"Failed tasks: {len(failures)}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -159,6 +180,8 @@ def main(argv: list[str] | None = None) -> int:
 
     timings: dict[str, float] = {}
     all_task_results = []
+    all_exceptions = []
+    failures: dict[str, str] = {}
     start_all = time.perf_counter()
 
     for task in tasks:
@@ -171,12 +194,25 @@ def main(argv: list[str] | None = None) -> int:
             cache=result_cache,
             overwrite_strategy=args.overwrite,
             show_progress_bar=not args.verbose,
+            raise_error=not args.continue_on_error,
         )
         timings[task.metadata.name] = time.perf_counter() - t0
         all_task_results.extend(task_result.task_results)
+        if task_result.exceptions:
+            all_exceptions.extend(task_result.exceptions)
+            for err in task_result.exceptions:
+                failures[err.task_name] = err.exception
+                logger.error("Task %s failed: %s", err.task_name, err.exception)
 
     elapsed_all = time.perf_counter() - start_all
-    logger.info("All tasks finished in %.1fs", elapsed_all)
+    if failures:
+        logger.warning(
+            "Finished with %d failed task(s) in %.1fs",
+            len(failures),
+            elapsed_all,
+        )
+    else:
+        logger.info("All tasks finished in %.1fs", elapsed_all)
 
     from mteb.results.model_result import ModelResult
 
@@ -184,14 +220,15 @@ def main(argv: list[str] | None = None) -> int:
         model_name=source.hub_id or source.path,
         model_revision=None,
         task_results=all_task_results,
+        exceptions=all_exceptions or None,
     )
     summary_path = output_dir / "summary.json"
     with summary_path.open("w", encoding="utf-8") as f:
         json.dump(combined.model_dump(), f, indent=2, default=str)
     logger.info("Wrote summary to %s", summary_path)
-    _print_summary(combined, timings)
+    _print_summary(combined, timings, failures=failures)
 
-    return 0
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":
