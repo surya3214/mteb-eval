@@ -1,0 +1,142 @@
+{
+  "benchmark": "MTEB(eng, v2)",
+  "task_types": ["STS", "Retrieval"],
+  "expected_count": 19,
+  "approximate_total_mb": 1200,
+  "notes": "Retrieval tasks use v2 hard-negative HF repos (~740 MB). STS tasks ~50-100 MB.",
+  "tasks": [
+    {
+      "name": "ArguAna",
+      "type": "Retrieval",
+      "dataset": "mteb/arguana",
+      "revision": "c22ab2a51041ffd869aaddef7af8d8215647e41a",
+      "approximate_mb": 5
+    },
+    {
+      "name": "CQADupstackGamingRetrieval",
+      "type": "Retrieval",
+      "dataset": "mteb/cqadupstack-gaming",
+      "revision": "4885aa143210c98657558c04aaf3dc47cfb54340",
+      "approximate_mb": 15
+    },
+    {
+      "name": "CQADupstackUnixRetrieval",
+      "type": "Retrieval",
+      "dataset": "mteb/cqadupstack-unix",
+      "revision": "6c6430d3a6d36f8d2a829195bc5dc94d7e063e53",
+      "approximate_mb": 20
+    },
+    {
+      "name": "ClimateFEVERHardNegatives",
+      "type": "Retrieval",
+      "dataset": "mteb/ClimateFEVER_test_top_250_only_w_correct-v2",
+      "revision": "3a309e201f3c2c4b13bd4a367a8f37eee2ec1d21",
+      "approximate_mb": 120
+    },
+    {
+      "name": "FEVERHardNegatives",
+      "type": "Retrieval",
+      "dataset": "mteb/FEVER_test_top_250_only_w_correct-v2",
+      "revision": "080c9ed6267b65029207906e815d44a9240bafca",
+      "approximate_mb": 200
+    },
+    {
+      "name": "FiQA2018",
+      "type": "Retrieval",
+      "dataset": "mteb/fiqa",
+      "revision": "27a168819829fe9bcd655c2df245fb19452e8e06",
+      "approximate_mb": 10
+    },
+    {
+      "name": "HotpotQAHardNegatives",
+      "type": "Retrieval",
+      "dataset": "mteb/HotpotQA_test_top_250_only_w_correct-v2",
+      "revision": "617612fa63afcb60e3b134bed8b7216a99707c37",
+      "approximate_mb": 250
+    },
+    {
+      "name": "SCIDOCS",
+      "type": "Retrieval",
+      "dataset": "mteb/scidocs",
+      "revision": "f8c2fcf00f625baaa80f62ec5bd9e1fff3b8ae88",
+      "approximate_mb": 15
+    },
+    {
+      "name": "TRECCOVID",
+      "type": "Retrieval",
+      "dataset": "mteb/trec-covid",
+      "revision": "bb9466bac8153a0349341eb1b22e06409e78ef4e",
+      "approximate_mb": 5
+    },
+    {
+      "name": "Touche2020Retrieval.v3",
+      "type": "Retrieval",
+      "dataset": "mteb/webis-touche2020-v3",
+      "revision": "431886eaecc48f067a3975b70d0949ea2862463c",
+      "approximate_mb": 10
+    },
+    {
+      "name": "BIOSSES",
+      "type": "STS",
+      "dataset": "mteb/biosses-sts",
+      "revision": "d3fb88f8f02e40887cd149695127462bbcf29b4a",
+      "approximate_mb": 1
+    },
+    {
+      "name": "SICK-R",
+      "type": "STS",
+      "dataset": "mteb/sickr-sts",
+      "revision": "20a6d6f312dd54037fe07a32d58e5e168867909d",
+      "approximate_mb": 5
+    },
+    {
+      "name": "STS12",
+      "type": "STS",
+      "dataset": "mteb/sts12-sts",
+      "revision": "a0d554a64d88156834ff5ae9920b964011b16384",
+      "approximate_mb": 1
+    },
+    {
+      "name": "STS13",
+      "type": "STS",
+      "dataset": "mteb/sts13-sts",
+      "revision": "7e90230a92c190f1bf69ae9002b8cea547a64cca",
+      "approximate_mb": 1
+    },
+    {
+      "name": "STS14",
+      "type": "STS",
+      "dataset": "mteb/sts14-sts",
+      "revision": "6031580fec1f6af667f0bd2da0a551cf4f0b2375",
+      "approximate_mb": 2
+    },
+    {
+      "name": "STS15",
+      "type": "STS",
+      "dataset": "mteb/sts15-sts",
+      "revision": "ae752c7c21bf194d8b67fd573edf7ae58183cbe3",
+      "approximate_mb": 2
+    },
+    {
+      "name": "STSBenchmark",
+      "type": "STS",
+      "dataset": "mteb/stsbenchmark-sts",
+      "revision": "b0fddb56ed78048fa8b90373c8a3cfc37b684831",
+      "approximate_mb": 5
+    },
+    {
+      "name": "STS17",
+      "type": "STS",
+      "dataset": "mteb/sts17-crosslingual-sts",
+      "revision": "faeb762787bd10488a50c8b5be4a3b82e411949c",
+      "approximate_mb": 5
+    },
+    {
+      "name": "STS22.v2",
+      "type": "STS",
+      "dataset": "mteb/sts22-crosslingual-sts",
+      "revision": "d31f33a128469b20e357535c39b82fb3c3f6f2bd",
+      "approximate_mb": 10
+    }
+  ]
+}
