@@ -12,8 +12,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from mteb_eval.cache import configure_cache
-from mteb_eval.evaluate import _print_summary
-from mteb_eval.model_loader import resolve_model_source, validate_local_checkpoint
+from mteb_eval.evaluate import _print_summary, _release_task_memory
+from mteb_eval.model_loader import configure_max_seq_len, resolve_model_source, validate_local_checkpoint
 from mteb_eval.tasks import expected_task_names, load_manifest, resolve_tasks, validate_against_manifest
 from mteb.results.model_result import ModelResult
 from mteb.results.task_result import TaskError, TaskResult
@@ -201,6 +201,7 @@ def test_continue_on_error_collects_failures(tmp_path: Path):
         corpus_batch_size=None,
         overwrite="only-missing",
         continue_on_error=True,
+        max_seq_len=512,
         verbose=False,
     )
 
@@ -224,3 +225,24 @@ def test_continue_on_error_collects_failures(tmp_path: Path):
     summary = json.loads((tmp_path / "out" / "summary.json").read_text(encoding="utf-8"))
     assert len(summary["task_results"]) == 1
     assert summary["exceptions"][0]["task_name"] == "STS12"
+
+
+def test_configure_max_seq_len_sentence_transformer():
+    st_model = SimpleNamespace(max_seq_length=8192)
+    wrapper = SimpleNamespace(model=st_model)
+
+    configure_max_seq_len(wrapper, 512)
+    assert st_model.max_seq_length == 512
+
+
+def test_configure_max_seq_len_eurobert_wrapper():
+    from mteb_eval.model_loader import EuroBertEncoderWrapper
+
+    model = EuroBertEncoderWrapper(model=MagicMock(), tokenizer=MagicMock(), device="cpu")
+    model.max_length = 2048
+    configure_max_seq_len(model, 512)
+    assert model.max_length == 512
+
+
+def test_release_task_memory_runs():
+    _release_task_memory()

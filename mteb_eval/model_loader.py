@@ -10,7 +10,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-MODEL_TYPES = ("auto", "qwen3", "harrier", "sentence-transformer", "eurobert-base")
+DEFAULT_MAX_SEQ_LEN = 512
+
 
 QWEN3_HUB_IDS = (
     "Qwen/Qwen3-Embedding-0.6B",
@@ -328,4 +329,31 @@ def load_embedding_model(
         device=device,
         trust_remote_code=True,
         **kwargs,
+    )
+
+
+def configure_max_seq_len(model: Any, max_seq_len: int) -> None:
+    """Apply a sequence-length cap to the loaded encoder when supported."""
+    if max_seq_len <= 0:
+        raise ValueError(f"max_seq_len must be positive, got {max_seq_len}")
+
+    if isinstance(model, EuroBertEncoderWrapper):
+        model.max_length = max_seq_len
+        logger.info("Set max_length=%d on EuroBERT encoder", max_seq_len)
+        return
+
+    inner = getattr(model, "model", None)
+    if inner is not None and hasattr(inner, "max_seq_length"):
+        inner.max_seq_length = max_seq_len
+        logger.info("Set max_seq_length=%d on encoder", max_seq_len)
+        return
+
+    if hasattr(model, "max_seq_length"):
+        model.max_seq_length = max_seq_len
+        logger.info("Set max_seq_length=%d on encoder", max_seq_len)
+        return
+
+    logger.warning(
+        "Encoder %s does not expose max_seq_length; relying on encode-time truncation only",
+        type(model).__name__,
     )

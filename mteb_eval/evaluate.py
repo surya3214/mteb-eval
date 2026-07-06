@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import logging
 import sys
@@ -10,7 +11,12 @@ import time
 from pathlib import Path
 
 from mteb_eval.cache import configure_cache
-from mteb_eval.model_loader import load_embedding_model, resolve_model_source
+from mteb_eval.model_loader import (
+    DEFAULT_MAX_SEQ_LEN,
+    configure_max_seq_len,
+    load_embedding_model,
+    resolve_model_source,
+)
 from mteb_eval.tasks import resolve_tasks
 
 logger = logging.getLogger(__name__)
@@ -88,12 +94,40 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Log task failures and continue with remaining tasks (default: stop on first error).",
     )
+    parser.add_argument(
+        "--max-seq-len",
+        type=int,
+        default=DEFAULT_MAX_SEQ_LEN,
+        help=f"Maximum input sequence length / truncation limit (default: {DEFAULT_MAX_SEQ_LEN}).",
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     return parser
 
 
+def _release_task_memory() -> None:
+    """Best-effort release of GPU/CPU memory between benchmark tasks."""
+    gc.collect()
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            if hasattr(torch.cuda, "ipc_collect"):
+                torch.cuda.ipc_collect()
+    except ImportError:
+        pass
+
+
 def _build_encode_kwargs(args: argparse.Namespace) -> dict:
-    kwargs: dict = {"batch_size": args.batch_size}
+    kwargs: dict = {
+        "batch_size": args.batch_size,
+        "processing_kwargs": {
+            "text": {
+                "max_length": args.max_seq_len,
+                "truncation": True,
+            }
+        },
+    }
     if args.query_batch_size is not None:
         kwargs["query_batch_size"] = args.query_batch_size
     if args.corpus_batch_size is not None:
@@ -167,6 +201,8 @@ def main(argv: list[str] | None = None) -> int:
         model_type=args.model_type,
         device=args.device,
     )
+    configure_max_seq_len(model, args.max_seq_len)
+    logger.info("Using max sequence length: %d", args.max_seq_len)
 
     tasks = resolve_tasks(
         benchmark=args.benchmark,
@@ -203,6 +239,8 @@ def main(argv: list[str] | None = None) -> int:
             for err in task_result.exceptions:
                 failures[err.task_name] = err.exception
                 logger.error("Task %s failed: %s", err.task_name, err.exception)
+
+        _release_task_memory()
 
     elapsed_all = time.perf_counter() - start_all
     if failures:
