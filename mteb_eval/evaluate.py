@@ -17,6 +17,8 @@ from mteb_eval.model_loader import (
     load_embedding_model,
     resolve_model_source,
 )
+from mteb_eval.prompts import configure_prompt_prefixes, print_task_prompts, resolve_task_prompts
+from mteb_eval.summary import build_summary_rows, print_summary, write_summary_csv
 from mteb_eval.tasks import resolve_tasks
 
 logger = logging.getLogger(__name__)
@@ -100,6 +102,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_MAX_SEQ_LEN,
         help=f"Maximum input sequence length / truncation limit (default: {DEFAULT_MAX_SEQ_LEN}).",
     )
+    parser.add_argument(
+        "--query-prefix",
+        type=str,
+        default=None,
+        help="Optional prefix prepended to queries (SentenceTransformer prompts['query']).",
+    )
+    parser.add_argument(
+        "--document-prefix",
+        type=str,
+        default=None,
+        help="Optional prefix prepended to documents/passages (prompts['document']).",
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     return parser
 
@@ -133,37 +147,6 @@ def _build_encode_kwargs(args: argparse.Namespace) -> dict:
     if args.corpus_batch_size is not None:
         kwargs["corpus_batch_size"] = args.corpus_batch_size
     return kwargs
-
-
-def _print_summary(
-    results,
-    timings: dict[str, float],
-    *,
-    failures: dict[str, str] | None = None,
-) -> None:
-    failures = failures or {}
-    print("\n" + "=" * 72)
-    print(f"{'Task':<35} {'Score':>12} {'Time (s)':>10}")
-    print("-" * 72)
-    printed: set[str] = set()
-    for task_result in results.task_results:
-        name = task_result.task_name
-        printed.add(name)
-        main_score = task_result.get_score()
-        elapsed = timings.get(name, 0.0)
-        score_str = f"{main_score:.4f}" if main_score is not None else "n/a"
-        print(f"{name:<35} {score_str:>12} {elapsed:>10.1f}")
-    for name, error in failures.items():
-        if name in printed:
-            continue
-        elapsed = timings.get(name, 0.0)
-        print(f"{name:<35} {'FAILED':>12} {elapsed:>10.1f}")
-        print(f"  error: {error}")
-    print("=" * 72)
-    total = sum(timings.values())
-    print(f"Total evaluation time: {total:.1f}s ({total / 60:.1f} min)")
-    if failures:
-        print(f"Failed tasks: {len(failures)}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -202,6 +185,11 @@ def main(argv: list[str] | None = None) -> int:
         device=args.device,
     )
     configure_max_seq_len(model, args.max_seq_len)
+    configure_prompt_prefixes(
+        model,
+        query_prefix=args.query_prefix,
+        document_prefix=args.document_prefix,
+    )
     logger.info("Using max sequence length: %d", args.max_seq_len)
 
     tasks = resolve_tasks(
@@ -218,10 +206,14 @@ def main(argv: list[str] | None = None) -> int:
     all_task_results = []
     all_exceptions = []
     failures: dict[str, str] = {}
+    task_prompts: dict[str, dict[str, str]] = {}
     start_all = time.perf_counter()
 
     for task in tasks:
         t0 = time.perf_counter()
+        prompts = resolve_task_prompts(model, task)
+        task_prompts[task.metadata.name] = prompts
+        print_task_prompts(task.metadata.name, prompts)
         logger.info("Running task: %s", task.metadata.name)
         task_result = mteb.evaluate(
             model,
@@ -264,7 +256,23 @@ def main(argv: list[str] | None = None) -> int:
     with summary_path.open("w", encoding="utf-8") as f:
         json.dump(combined.model_dump(), f, indent=2, default=str)
     logger.info("Wrote summary to %s", summary_path)
-    _print_summary(combined, timings, failures=failures)
+
+    summary_rows = build_summary_rows(
+        combined,
+        timings,
+        failures=failures,
+        task_prompts=task_prompts,
+    )
+    csv_path = output_dir / "summary.csv"
+    write_summary_csv(csv_path, summary_rows, include_average=True)
+    logger.info("Wrote summary CSV to %s", csv_path)
+
+    print_summary(
+        combined,
+        timings,
+        failures=failures,
+        task_prompts=task_prompts,
+    )
 
     return 1 if failures else 0
 

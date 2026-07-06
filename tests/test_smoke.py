@@ -12,8 +12,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from mteb_eval.cache import configure_cache
-from mteb_eval.evaluate import _print_summary, _release_task_memory
+from mteb_eval.evaluate import _release_task_memory
 from mteb_eval.model_loader import configure_max_seq_len, resolve_model_source, validate_local_checkpoint
+from mteb_eval.prompts import configure_prompt_prefixes
+from mteb_eval.summary import build_summary_rows, print_summary, write_summary_csv
 from mteb_eval.tasks import expected_task_names, load_manifest, resolve_tasks, validate_against_manifest
 from mteb.results.model_result import ModelResult
 from mteb.results.task_result import TaskError, TaskResult
@@ -146,7 +148,7 @@ def test_print_summary_includes_failed_tasks(capsys):
     task_result.task_name = "BIOSSES"
     task_result.get_score.return_value = 0.5
     results = SimpleNamespace(task_results=[task_result])
-    _print_summary(
+    print_summary(
         results,
         {"BIOSSES": 1.0, "STS12": 0.5},
         failures={"STS12": "dataset not found"},
@@ -157,6 +159,7 @@ def test_print_summary_includes_failed_tasks(capsys):
     assert "STS12" in out
     assert "FAILED" in out
     assert "dataset not found" in out
+    assert "AVERAGE" in out
     assert "Failed tasks: 1" in out
 
 
@@ -202,6 +205,8 @@ def test_continue_on_error_collects_failures(tmp_path: Path):
         overwrite="only-missing",
         continue_on_error=True,
         max_seq_len=512,
+        query_prefix=None,
+        document_prefix=None,
         verbose=False,
     )
 
@@ -225,6 +230,51 @@ def test_continue_on_error_collects_failures(tmp_path: Path):
     summary = json.loads((tmp_path / "out" / "summary.json").read_text(encoding="utf-8"))
     assert len(summary["task_results"]) == 1
     assert summary["exceptions"][0]["task_name"] == "STS12"
+    assert (tmp_path / "out" / "summary.csv").exists()
+
+
+def test_write_summary_csv_includes_average(tmp_path: Path):
+    rows = [
+        {
+            "task": "STS12",
+            "score": 0.8,
+            "time_s": 2.0,
+            "status": "ok",
+            "query_prompt": "q1",
+            "document_prompt": "d1",
+            "error": "",
+        },
+        {
+            "task": "STS13",
+            "score": 0.6,
+            "time_s": 4.0,
+            "status": "ok",
+            "query_prompt": "q2",
+            "document_prompt": "d2",
+            "error": "",
+        },
+    ]
+    csv_path = tmp_path / "summary.csv"
+    write_summary_csv(csv_path, rows)
+    content = csv_path.read_text(encoding="utf-8")
+    assert "AVERAGE" in content
+    assert "0.700000" in content
+    assert "3.000" in content
+
+
+def test_configure_prompt_prefixes_on_sentence_transformer():
+    st_model = SimpleNamespace(prompts={"query": "old-q", "document": "old-d"})
+    wrapper = SimpleNamespace(model=st_model, model_prompts={"query": "old-q"})
+
+    configure_prompt_prefixes(
+        wrapper,
+        query_prefix="query: ",
+        document_prefix="document: ",
+    )
+    assert st_model.prompts["query"] == "query: "
+    assert st_model.prompts["document"] == "document: "
+    assert wrapper.model_prompts["query"] == "query: "
+    assert wrapper.model_prompts["document"] == "document: "
 
 
 def test_configure_max_seq_len_sentence_transformer():

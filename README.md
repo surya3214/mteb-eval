@@ -185,9 +185,11 @@ Manifest: [`mteb_eval/manifests/eng_v2_sts_retrieval.json`](mteb_eval/manifests/
 --benchmark                Default: MTEB(eng, v2)
 --task-types               Default: STS Retrieval
 --tasks                    Optional subset
---output-dir               Results + summary.json (required)
+--output-dir               Results + summary.json + summary.csv (required)
 --batch-size / --query-batch-size / --corpus-batch-size
 --max-seq-len              Default: 512 (truncation cap for long inputs like STS22)
+--query-prefix             Optional query prefix (SentenceTransformer `prompts['query']`)
+--document-prefix          Optional document/passage prefix (`prompts['document']`)
 --device                   cuda, cpu, mps
 --overwrite                only-missing | always | never
 --continue-on-error        Log failures and continue (default: stop on first error)
@@ -202,6 +204,7 @@ Manifest: [`mteb_eval/manifests/eng_v2_sts_retrieval.json`](mteb_eval/manifests/
 - **Qwen3 local scores differ:** Pass `--hub-id` so the MTEB instruct wrapper is applied.
 - **Hub id passed to `--model-path`:** Use `--model <repo_id>` instead; `--model-path` must be an existing directory.
 - **One task fails mid-run:** By default evaluation stops on the first error. Use `--continue-on-error` to finish remaining tasks; failed tasks appear as `FAILED` in the summary and the process exits with code 1.
+- **Custom query/document prefixes:** Use `--query-prefix` / `--document-prefix` for SentenceTransformer-style models (e.g. `query: ` / `document: `). Instruct models (Qwen3, Harrier) use per-task instructions instead; prefixes are printed before each task runs.
 - **STS22 OOM on long news articles:** Lower `--batch-size` (4–16 for large models) and/or reduce `--max-seq-len` (default 512). GPU memory is released between tasks via `gc.collect()` and `torch.cuda.empty_cache()`.
 
 ## Tests
