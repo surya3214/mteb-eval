@@ -189,6 +189,7 @@ Manifest: [`mteb_eval/manifests/eng_v2_sts_retrieval.json`](mteb_eval/manifests/
 --batch-size / --query-batch-size / --corpus-batch-size
 --device                   cuda, cpu, mps
 --overwrite                only-missing | always | never
+--continue-on-error        Log failures and continue (default: stop on first error)
 ```
 
 ## Troubleshooting
@@ -199,6 +200,7 @@ Manifest: [`mteb_eval/manifests/eng_v2_sts_retrieval.json`](mteb_eval/manifests/
 - **Local folder load fails:** Folder must contain ST artifacts (`modules.json`, `config_sentence_transformers.json`) or transformers weights (`config.json` + `*.safetensors`).
 - **Qwen3 local scores differ:** Pass `--hub-id` so the MTEB instruct wrapper is applied.
 - **Hub id passed to `--model-path`:** Use `--model <repo_id>` instead; `--model-path` must be an existing directory.
+- **One task fails mid-run:** By default evaluation stops on the first error. Use `--continue-on-error` to finish remaining tasks; failed tasks appear as `FAILED` in the summary and the process exits with code 1.
 
 ## Tests
 
