@@ -3,8 +3,15 @@
 from __future__ import annotations
 
 import csv
+import json
+import logging
+import shutil
 from pathlib import Path
 from typing import Any
+
+from mteb_eval.runner import RUN_META_FILENAME, EvalRunResult
+
+logger = logging.getLogger(__name__)
 
 
 def build_summary_rows(
@@ -164,3 +171,99 @@ def print_summary(
             print(f"  {name}")
             print(f"    query:    {prompts.get('query', '')}")
             print(f"    document: {prompts.get('document', '')}")
+
+
+def _load_shard_run(shard_dir: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    summary_path = shard_dir / "summary.json"
+    meta_path = shard_dir / RUN_META_FILENAME
+    if not summary_path.exists():
+        raise FileNotFoundError(f"Missing shard summary: {summary_path}")
+    with summary_path.open(encoding="utf-8") as f:
+        summary = json.load(f)
+    meta: dict[str, Any] = {"timings": {}, "failures": {}, "task_prompts": {}}
+    if meta_path.exists():
+        with meta_path.open(encoding="utf-8") as f:
+            meta = json.load(f)
+    return summary, meta
+
+
+def _copy_result_cache_files(shard_dir: Path, output_dir: Path) -> None:
+    """Copy MTEB per-task result JSON files from a shard into the merged output dir."""
+    for path in shard_dir.rglob("*.json"):
+        if path.name in {"summary.json", RUN_META_FILENAME, "model_meta.json"}:
+            continue
+        if path.name == "run_settings.jsonl":
+            continue
+        rel = path.relative_to(shard_dir)
+        dest = output_dir / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, dest)
+
+
+def merge_shard_results(shard_dirs: list[Path], output_dir: Path) -> EvalRunResult:
+    """Merge parallel GPU shard outputs into a single EvalRunResult and unified cache."""
+    from mteb.results.model_result import ModelResult
+    from mteb.results.task_result import TaskError, TaskResult
+
+    if not shard_dirs:
+        raise ValueError("merge_shard_results requires at least one shard directory")
+
+    all_task_results: list[TaskResult] = []
+    all_exceptions: list[TaskError] = []
+    timings: dict[str, float] = {}
+    failures: dict[str, str] = {}
+    task_prompts: dict[str, dict[str, str]] = {}
+    model_name = ""
+    shard_exit_codes: list[int] = []
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    for shard_dir in shard_dirs:
+        summary, meta = _load_shard_run(shard_dir)
+        if not model_name:
+            model_name = summary.get("model_name", "")
+        shard_exit_codes.append(int(meta.get("exit_code", 0)))
+
+        for raw in summary.get("task_results", []):
+            all_task_results.append(TaskResult.model_validate(raw))
+        for raw in summary.get("exceptions") or []:
+            all_exceptions.append(TaskError.model_validate(raw))
+
+        timings.update(meta.get("timings", {}))
+        failures.update(meta.get("failures", {}))
+        task_prompts.update(meta.get("task_prompts", {}))
+
+        _copy_result_cache_files(shard_dir, output_dir)
+
+    combined = ModelResult(
+        model_name=model_name,
+        model_revision=None,
+        task_results=all_task_results,
+        exceptions=all_exceptions or None,
+    )
+
+    summary_path = output_dir / "summary.json"
+    with summary_path.open("w", encoding="utf-8") as f:
+        json.dump(combined.model_dump(), f, indent=2, default=str)
+
+    meta_path = output_dir / RUN_META_FILENAME
+    with meta_path.open("w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "timings": timings,
+                "failures": failures,
+                "task_prompts": task_prompts,
+            },
+            f,
+            indent=2,
+        )
+
+    exit_code = 1 if failures or any(code != 0 for code in shard_exit_codes) else 0
+    return EvalRunResult(
+        model_result=combined,
+        timings=timings,
+        failures=failures,
+        task_prompts=task_prompts,
+        exit_code=exit_code,
+        model_name=model_name,
+    )

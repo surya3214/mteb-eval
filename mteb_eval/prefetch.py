@@ -8,6 +8,7 @@ import sys
 import time
 
 from mteb_eval.cache import configure_cache
+from mteb_eval.languages import add_language_arguments, languages_from_args
 from mteb_eval.tasks import (
     dataset_info,
     resolve_tasks,
@@ -49,6 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional subset of task names.",
     )
+    add_language_arguments(parser)
     parser.add_argument(
         "--models",
         nargs="+",
@@ -123,6 +125,8 @@ def main(argv: list[str] | None = None) -> int:
         benchmark=args.benchmark,
         task_types=args.task_types,
         task_names=args.tasks,
+        languages=languages_from_args(args),
+        exclusive_language_filter=args.exclusive_language_filter,
     )
 
     if args.validate_manifest and args.tasks is None:

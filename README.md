@@ -185,6 +185,9 @@ Manifest: [`mteb_eval/manifests/eng_v2_sts_retrieval.json`](mteb_eval/manifests/
 --benchmark                Default: MTEB(eng, v2)
 --task-types               Default: STS Retrieval
 --tasks                    Optional subset
+--languages                Language-script codes (e.g. eng-Latn deu-Latn)
+--languages-preset         ml16 = 16-language preset (EN KO AR ZH FR DE HI ID IT JP PT RU ES VI TH PL)
+--exclusive-language-filter  Keep only subsets where ALL languages match (default: ANY match)
 --output-dir               Results + summary.json + summary.csv (required)
 --batch-size / --query-batch-size / --corpus-batch-size
 --max-seq-len              Default: 512 (truncation cap for long inputs like STS22)
@@ -194,6 +197,52 @@ Manifest: [`mteb_eval/manifests/eng_v2_sts_retrieval.json`](mteb_eval/manifests/
 --overwrite                only-missing | always | never
 --continue-on-error        Log failures and continue (default: stop on first error)
 ```
+
+## Multilingual evaluation (16 languages)
+
+For `MTEB(Multilingual, v2)`, use `--languages-preset ml16` to evaluate only your supported languages. Tasks with no overlapping subsets are skipped automatically (e.g. `TwitterHjerneRetrieval` for Danish-only).
+
+```bash
+python -m mteb_eval.prefetch \
+  --cache-dir /data/hf_cache \
+  --benchmark "MTEB(Multilingual, v2)" \
+  --languages-preset ml16 \
+  --no-validate-manifest
+
+python -m mteb_eval.evaluate \
+  --cache-dir /data/hf_cache --offline \
+  --benchmark "MTEB(Multilingual, v2)" \
+  --languages-preset ml16 \
+  --model Qwen/Qwen3-Embedding-4B \
+  --output-dir results/qwen3-ml16 \
+  --device cuda
+```
+
+The `ml16` preset maps to: `eng-Latn`, `kor-Hang`, `ara-Arab`, `zho-Hans`, `fra-Latn`, `deu-Latn`, `hin-Deva`, `ind-Latn`, `ita-Latn`, `jpn-Jpan`, `por-Latn`, `rus-Cyrl`, `spa-Latn`, `vie-Latn`, `tha-Latn`, `pol-Latn`.
+
+Cross-lingual subsets (e.g. `en-de` in STS17) are kept when **any** language in the pair is in your list. Use `--exclusive-language-filter` for strict all-language matching.
+
+## Multi-GPU parallel evaluation
+
+Use `evaluate_parallel` to split tasks across GPUs (one model copy per GPU). Wall-clock time drops roughly proportional to GPU count; VRAM usage is per-GPU.
+
+```bash
+python -m mteb_eval.evaluate_parallel \
+  --cache-dir /data/hf_cache --offline \
+  --benchmark "MTEB(Multilingual, v2)" \
+  --languages-preset ml16 \
+  --model Qwen/Qwen3-Embedding-4B \
+  --gpus 0,1,2,3 \
+  --output-dir results/qwen3-ml16-parallel \
+  --corpus-batch-size 4
+```
+
+- `--gpus auto` (default): use all visible CUDA devices
+- Per-GPU shards are written to `{output_dir}/.shards/gpu{N}/`
+- Merged `summary.json` and `summary.csv` are written to `--output-dir`
+
+Shell wrapper: [`scripts/evaluate_parallel.sh`](scripts/evaluate_parallel.sh).
+
 
 ## Troubleshooting
 
@@ -218,14 +267,18 @@ pytest tests/ -v
 ```
 mteb_eval/
   cache.py           HF cache / offline env setup
-  tasks.py           Task resolution + manifest validation
+  languages.py       Language presets (ml16) and CLI resolution
+  tasks.py           Task resolution + manifest validation + partitioning
+  runner.py          Shared evaluation loop
   prefetch.py        Dataset (+ optional model) download CLI
-  evaluate.py        Evaluation CLI
+  evaluate.py        Single-GPU evaluation CLI
+  evaluate_parallel.py  Multi-GPU parallel evaluation coordinator
   model_loader.py    Hub + local model loading
   manifests/         Static task manifest
 scripts/
   prefetch.sh
   evaluate.sh
+  evaluate_parallel.sh
 tests/
   test_smoke.py
 ```
