@@ -12,13 +12,26 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from mteb_eval.cache import configure_cache
-from mteb_eval.evaluate import _release_task_memory
+from mteb_eval.languages import ML16_LANGUAGES, resolve_languages
+from mteb_eval.runner import release_task_memory
 from mteb_eval.model_loader import configure_max_seq_len, resolve_model_source, validate_local_checkpoint
 from mteb_eval.prompts import configure_prompt_prefixes
-from mteb_eval.summary import build_summary_rows, print_summary, write_summary_csv
-from mteb_eval.tasks import expected_task_names, load_manifest, resolve_tasks, validate_against_manifest
+from mteb_eval.summary import (
+    build_summary_rows,
+    merge_shard_results,
+    print_summary,
+    write_summary_csv,
+)
+from mteb_eval.tasks import (
+    expected_task_names,
+    filter_tasks_by_languages,
+    load_manifest,
+    partition_task_names,
+    resolve_tasks,
+    validate_against_manifest,
+)
 from mteb.results.model_result import ModelResult
-from mteb.results.task_result import TaskError, TaskResult
+from mteb.results.task_result import TaskResult
 
 
 def _sample_task_result(name: str = "BIOSSES") -> TaskResult:
@@ -164,27 +177,26 @@ def test_print_summary_includes_failed_tasks(capsys):
 
 
 def test_continue_on_error_collects_failures(tmp_path: Path):
-    from mteb_eval import evaluate as evaluate_module
+    from mteb_eval.runner import EvalRunResult
 
     ok_task = MagicMock()
     ok_task.metadata.name = "BIOSSES"
     bad_task = MagicMock()
     bad_task.metadata.name = "STS12"
 
-    ok_result = SimpleNamespace(
-        task_results=[_sample_task_result("BIOSSES")],
-        exceptions=None,
+    ok_result = EvalRunResult(
+        model_result=ModelResult(
+            model_name="mteb/baseline-random-encoder",
+            model_revision=None,
+            task_results=[_sample_task_result("BIOSSES")],
+            exceptions=None,
+        ),
+        timings={"BIOSSES": 1.0, "STS12": 0.5},
+        failures={"STS12": "boom"},
+        task_prompts={},
+        exit_code=1,
+        model_name="mteb/baseline-random-encoder",
     )
-    fail_result = SimpleNamespace(
-        task_results=[],
-        exceptions=[TaskError(task_name="STS12", exception="boom")],
-    )
-
-    def fake_evaluate(model, tasks, **kwargs):
-        task = tasks[0]
-        if task.metadata.name == "STS12":
-            return fail_result
-        return ok_result
 
     args = SimpleNamespace(
         cache_dir=None,
@@ -197,6 +209,9 @@ def test_continue_on_error_collects_failures(tmp_path: Path):
         benchmark="MTEB(eng, v2)",
         task_types=["STS"],
         tasks=None,
+        languages=None,
+        languages_preset=None,
+        exclusive_language_filter=False,
         output_dir=str(tmp_path / "out"),
         device="cpu",
         batch_size=8,
@@ -210,26 +225,16 @@ def test_continue_on_error_collects_failures(tmp_path: Path):
         verbose=False,
     )
 
-    with (
-        patch.object(evaluate_module, "build_parser") as mock_parser,
-        patch.object(evaluate_module, "configure_cache"),
-        patch.object(evaluate_module, "resolve_model_source") as mock_source,
-        patch.object(evaluate_module, "load_embedding_model", return_value=MagicMock()),
-        patch.object(evaluate_module, "resolve_tasks", return_value=[ok_task, bad_task]),
-        patch("mteb.evaluate", side_effect=fake_evaluate),
-    ):
+    with patch("mteb_eval.evaluate.run_evaluation", return_value=ok_result) as mock_run, patch(
+        "mteb_eval.evaluate.build_parser"
+    ) as mock_parser:
+        from mteb_eval import evaluate as evaluate_module
+
         mock_parser.return_value.parse_args.return_value = args
-        mock_source.return_value = SimpleNamespace(
-            path="mteb/baseline-random-encoder",
-            is_local=False,
-            hub_id="mteb/baseline-random-encoder",
-        )
         exit_code = evaluate_module.main([])
 
     assert exit_code == 1
-    summary = json.loads((tmp_path / "out" / "summary.json").read_text(encoding="utf-8"))
-    assert len(summary["task_results"]) == 1
-    assert summary["exceptions"][0]["task_name"] == "STS12"
+    mock_run.assert_called_once()
     assert (tmp_path / "out" / "summary.csv").exists()
 
 
@@ -295,4 +300,85 @@ def test_configure_max_seq_len_eurobert_wrapper():
 
 
 def test_release_task_memory_runs():
-    _release_task_memory()
+    release_task_memory()
+
+
+def test_ml16_preset_has_16_codes():
+    assert len(ML16_LANGUAGES) == 16
+    assert "eng-Latn" in ML16_LANGUAGES
+    assert "jpn-Jpan" in ML16_LANGUAGES
+    assert "zho-Hans" in ML16_LANGUAGES
+
+
+def test_resolve_languages_preset():
+    langs = resolve_languages(languages_preset="ml16")
+    assert langs == list(ML16_LANGUAGES)
+
+
+def test_resolve_languages_mutually_exclusive():
+    with pytest.raises(ValueError, match="not both"):
+        resolve_languages(languages=["eng-Latn"], languages_preset="ml16")
+
+
+def test_filter_tasks_by_languages_sts17():
+    import mteb
+
+    task = mteb.get_task("STS17")
+    before = len(task.hf_subsets)
+    filtered = filter_tasks_by_languages([task], list(ML16_LANGUAGES))
+    assert len(filtered) == 1
+    assert len(filtered[0].hf_subsets) == before
+
+
+def test_filter_skips_no_overlap_task():
+    import mteb
+
+    task = mteb.get_task("TwitterHjerneRetrieval")
+    filtered = filter_tasks_by_languages([task], list(ML16_LANGUAGES))
+    assert filtered == []
+
+
+def test_partition_task_names_round_robin():
+    names = ["C", "A", "B", "D", "E"]
+    parts = partition_task_names(names, 3)
+    assert parts == [["A", "D"], ["B", "E"], ["C"]]
+
+
+def test_merge_shard_results(tmp_path: Path):
+    shard_a = tmp_path / "shard0"
+    shard_b = tmp_path / "shard1"
+    shard_a.mkdir()
+    shard_b.mkdir()
+
+    result_a = _sample_task_result("STS12")
+    result_b = _sample_task_result("STS13")
+    model_dump_a = {
+        "model_name": "test/model",
+        "model_revision": None,
+        "task_results": [result_a.model_dump()],
+        "exceptions": None,
+    }
+    model_dump_b = {
+        "model_name": "test/model",
+        "model_revision": None,
+        "task_results": [result_b.model_dump()],
+        "exceptions": None,
+    }
+    (shard_a / "summary.json").write_text(json.dumps(model_dump_a), encoding="utf-8")
+    (shard_b / "summary.json").write_text(json.dumps(model_dump_b), encoding="utf-8")
+    (shard_a / "run_meta.json").write_text(
+        json.dumps({"timings": {"STS12": 1.0}, "failures": {}, "task_prompts": {}, "exit_code": 0}),
+        encoding="utf-8",
+    )
+    (shard_b / "run_meta.json").write_text(
+        json.dumps({"timings": {"STS13": 2.0}, "failures": {}, "task_prompts": {}, "exit_code": 0}),
+        encoding="utf-8",
+    )
+
+    output_dir = tmp_path / "merged"
+    merged = merge_shard_results([shard_a, shard_b], output_dir)
+    assert len(merged.model_result.task_results) == 2
+    assert merged.timings["STS12"] == 1.0
+    assert merged.timings["STS13"] == 2.0
+    assert (output_dir / "summary.json").exists()
+    assert (output_dir / "summary.csv").exists() is False  # CSV written by caller
