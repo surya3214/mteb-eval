@@ -76,6 +76,151 @@ def _average_row(rows: list[dict[str, str | float | None]]) -> dict[str, str | f
     }
 
 
+def iter_subset_score_entries(results: Any) -> list[dict[str, Any]]:
+    """Flatten per-subset / per-language score entries from ModelResult task_results."""
+    entries: list[dict[str, Any]] = []
+    for task_result in results.task_results:
+        task_name = task_result.task_name
+        scores = getattr(task_result, "scores", None) or {}
+        if isinstance(scores, dict):
+            split_items = scores.items()
+        else:
+            continue
+        for split, split_scores in split_items:
+            if not isinstance(split_scores, list):
+                continue
+            for entry in split_scores:
+                if not isinstance(entry, dict):
+                    # pydantic ScoreDict-like
+                    entry = dict(entry) if hasattr(entry, "items") else {}
+                main = entry.get("main_score")
+                if main is None:
+                    continue
+                hf_subset = entry.get("hf_subset", "default")
+                langs = entry.get("languages") or []
+                if not langs:
+                    langs = [str(hf_subset)]
+                for lang in langs:
+                    entries.append(
+                        {
+                            "task": task_name,
+                            "split": split,
+                            "hf_subset": hf_subset,
+                            "language": lang,
+                            "score": float(main),
+                        }
+                    )
+    return entries
+
+
+def build_language_summary_rows(results: Any) -> list[dict[str, Any]]:
+    """Aggregate main_score by language across all tasks/subsets."""
+    from collections import defaultdict
+
+    by_lang: dict[str, list[float]] = defaultdict(list)
+    tasks_by_lang: dict[str, set[str]] = defaultdict(set)
+    for entry in iter_subset_score_entries(results):
+        lang = str(entry["language"])
+        by_lang[lang].append(float(entry["score"]))
+        tasks_by_lang[lang].add(str(entry["task"]))
+
+    rows: list[dict[str, Any]] = []
+    for lang in sorted(by_lang):
+        scores = by_lang[lang]
+        rows.append(
+            {
+                "language": lang,
+                "mean_score": sum(scores) / len(scores),
+                "n_scores": len(scores),
+                "n_tasks": len(tasks_by_lang[lang]),
+            }
+        )
+    return rows
+
+
+def write_language_summary_csv(path: Path, rows: list[dict[str, Any]]) -> None:
+    """Write language-aggregated summary CSV with an AVERAGE row."""
+    fieldnames = ["language", "mean_score", "n_scores", "n_tasks"]
+    with path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(
+                {
+                    "language": row["language"],
+                    "mean_score": f"{float(row['mean_score']):.6f}",
+                    "n_scores": int(row["n_scores"]),
+                    "n_tasks": int(row["n_tasks"]),
+                }
+            )
+        if rows:
+            all_scores = [float(r["mean_score"]) for r in rows]
+            writer.writerow(
+                {
+                    "language": "AVERAGE",
+                    "mean_score": f"{sum(all_scores) / len(all_scores):.6f}",
+                    "n_scores": sum(int(r["n_scores"]) for r in rows),
+                    "n_tasks": "",
+                }
+            )
+
+
+def write_language_detail_csv(path: Path, results: Any) -> None:
+    """Write per-task × language × subset score rows."""
+    fieldnames = ["task", "split", "hf_subset", "language", "score"]
+    entries = iter_subset_score_entries(results)
+    with path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for entry in entries:
+            writer.writerow(
+                {
+                    "task": entry["task"],
+                    "split": entry["split"],
+                    "hf_subset": entry["hf_subset"],
+                    "language": entry["language"],
+                    "score": f"{float(entry['score']):.6f}",
+                }
+            )
+
+
+def print_language_summary(results: Any) -> None:
+    """Print a compact language-wise score table."""
+    rows = build_language_summary_rows(results)
+    if not rows:
+        return
+    print("\n" + "=" * 64)
+    print(f"{'Language':<20} {'Mean score':>12} {'n_scores':>10} {'n_tasks':>8}")
+    print("-" * 64)
+    for row in rows:
+        print(
+            f"{row['language']:<20} {float(row['mean_score']):>12.4f} "
+            f"{int(row['n_scores']):>10} {int(row['n_tasks']):>8}"
+        )
+    means = [float(r["mean_score"]) for r in rows]
+    print("-" * 64)
+    print(
+        f"{'AVERAGE':<20} {sum(means) / len(means):>12.4f} "
+        f"{sum(int(r['n_scores']) for r in rows):>10}"
+    )
+    print("=" * 64)
+
+
+def write_language_outputs(output_dir: Path, results: Any) -> tuple[Path, Path] | None:
+    """Write language aggregate + detail CSVs; return paths or None if no subset scores."""
+    lang_rows = build_language_summary_rows(results)
+    if not lang_rows:
+        logger.info("No per-language subset scores found; skipping language CSVs")
+        return None
+    lang_path = output_dir / "summary_by_language.csv"
+    detail_path = output_dir / "summary_by_language_detail.csv"
+    write_language_summary_csv(lang_path, lang_rows)
+    write_language_detail_csv(detail_path, results)
+    logger.info("Wrote language summary CSV to %s", lang_path)
+    logger.info("Wrote language detail CSV to %s", detail_path)
+    return lang_path, detail_path
+
+
 def write_summary_csv(
     path: Path,
     rows: list[dict[str, str | float | None]],

@@ -23,9 +23,13 @@ from mteb_eval.model_loader import (
 )
 from mteb_eval.prompts import configure_prompt_prefixes
 from mteb_eval.summary import (
+    build_language_summary_rows,
     build_summary_rows,
     merge_shard_results,
     print_summary,
+    write_language_detail_csv,
+    write_language_outputs,
+    write_language_summary_csv,
     write_summary_csv,
 )
 from mteb_eval.tasks import (
@@ -469,3 +473,45 @@ def test_load_embedding_model_passes_nested_model_kwargs():
     assert kwargs["model_kwargs"]["torch_dtype"] == torch.bfloat16
     assert kwargs["model_kwargs"]["attn_implementation"] == "sdpa"
     assert "torch_dtype" not in kwargs
+
+
+def test_language_summary_rows_and_csv(tmp_path: Path):
+    from mteb.results.model_result import ModelResult
+    from mteb.results.task_result import TaskResult
+
+    tr = TaskResult(
+        task_name="STS17",
+        dataset_revision="rev",
+        mteb_version="2.18.0",
+        evaluation_time=1.0,
+        scores={
+            "test": [
+                {"main_score": 0.8, "hf_subset": "en-en", "languages": ["eng-Latn"]},
+                {"main_score": 0.6, "hf_subset": "en-de", "languages": ["eng-Latn", "deu-Latn"]},
+                {"main_score": 0.4, "hf_subset": "de-de", "languages": ["deu-Latn"]},
+            ]
+        },
+    )
+    results = ModelResult(
+        model_name="test/model",
+        model_revision=None,
+        task_results=[tr],
+        exceptions=None,
+    )
+    rows = build_language_summary_rows(results)
+    by_lang = {r["language"]: r for r in rows}
+    assert by_lang["eng-Latn"]["mean_score"] == pytest.approx(0.7)
+    assert by_lang["deu-Latn"]["mean_score"] == pytest.approx(0.5)
+    assert by_lang["eng-Latn"]["n_scores"] == 2
+
+    out = write_language_outputs(tmp_path, results)
+    assert out is not None
+    lang_csv, detail_csv = out
+    assert lang_csv.exists()
+    assert detail_csv.exists()
+    lang_text = lang_csv.read_text(encoding="utf-8")
+    assert "eng-Latn" in lang_text
+    assert "AVERAGE" in lang_text
+    detail_text = detail_csv.read_text(encoding="utf-8")
+    assert "en-de" in detail_text
+    assert detail_text.count("eng-Latn") >= 2

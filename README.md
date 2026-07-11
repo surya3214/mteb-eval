@@ -189,7 +189,7 @@ Manifest: [`mteb_eval/manifests/eng_v2_sts_retrieval.json`](mteb_eval/manifests/
 --languages                Language-script codes (e.g. eng-Latn deu-Latn)
 --languages-preset         ml16 = 16-language preset (EN KO AR ZH FR DE HI ID IT JP PT RU ES VI TH PL)
 --exclusive-language-filter  Keep only subsets where ALL languages match (default: ANY match)
---output-dir               Results + summary.json + summary.csv (required)
+--output-dir               Results + summary.json + summary.csv + language CSVs (required)
 --batch-size / --query-batch-size / --corpus-batch-size
 --max-seq-len              Default: 512 (truncation cap for long inputs like STS22)
 --query-prefix             Optional query prefix (SentenceTransformer `prompts['query']`)
@@ -266,6 +266,7 @@ python -m mteb_eval.evaluate_parallel \
 - `--gpus auto` (default): use all visible CUDA devices
 - Per-GPU shards are written to `{output_dir}/.shards/gpu{N}/`
 - Merged `summary.json` and `summary.csv` are written to `--output-dir`
+- Language-wise scores: `summary_by_language.csv` (mean per language) and `summary_by_language_detail.csv` (task × subset × language)
 
 Shell wrapper: [`scripts/evaluate_parallel.sh`](scripts/evaluate_parallel.sh).
 
