@@ -8,7 +8,11 @@ import sys
 from pathlib import Path
 
 from mteb_eval.languages import add_language_arguments
-from mteb_eval.model_loader import DEFAULT_MAX_SEQ_LEN
+from mteb_eval.model_loader import (
+    DEFAULT_MAX_SEQ_LEN,
+    VALID_ATTN_IMPLEMENTATIONS,
+    VALID_DTYPES,
+)
 from mteb_eval.runner import run_evaluation
 from mteb_eval.summary import build_summary_rows, print_summary, write_summary_csv
 from mteb_eval.tasks import add_task_arguments
@@ -68,6 +72,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Directory for MTEB result cache and summary JSON.",
     )
     parser.add_argument("--device", type=str, default=None, help="Device (cuda, cpu, mps).")
+    parser.add_argument(
+        "--dtype",
+        choices=list(VALID_DTYPES),
+        default="auto",
+        help="Model weight dtype (default: auto = library default; bfloat16 recommended on H100).",
+    )
+    parser.add_argument(
+        "--attn-implementation",
+        choices=list(VALID_ATTN_IMPLEMENTATIONS),
+        default=None,
+        help=(
+            "Optional HF attention backend (default: unset = library default, typically SDPA). "
+            "flash_attention_2 is opt-in and requires a compatible install."
+        ),
+    )
     parser.add_argument("--batch-size", type=int, default=32, help="Default encode batch size.")
     parser.add_argument("--query-batch-size", type=int, default=None, help="Query batch size.")
     parser.add_argument(

@@ -130,6 +130,8 @@ def run_evaluation(
         source,
         model_type=args.model_type,
         device=args.device,
+        dtype=getattr(args, "dtype", "auto"),
+        attn_implementation=getattr(args, "attn_implementation", None),
     )
     configure_max_seq_len(model, args.max_seq_len)
     configure_prompt_prefixes(

@@ -11,6 +11,8 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_SEQ_LEN = 512
+VALID_DTYPES = ("auto", "float32", "bfloat16", "float16")
+VALID_ATTN_IMPLEMENTATIONS = ("sdpa", "eager", "flash_attention_2")
 
 
 QWEN3_HUB_IDS = (
@@ -171,6 +173,46 @@ def infer_qwen3_hub_id(source: ModelSource) -> str | None:
     return source.hub_id
 
 
+def resolve_torch_dtype(dtype: str) -> Any | None:
+    """Map a CLI dtype string to a torch.dtype, or None for library default."""
+    if dtype == "auto":
+        return None
+    import torch
+
+    mapping = {
+        "float32": torch.float32,
+        "bfloat16": torch.bfloat16,
+        "float16": torch.float16,
+    }
+    try:
+        return mapping[dtype]
+    except KeyError as exc:
+        raise ValueError(
+            f"Unknown dtype {dtype!r}. Expected one of: {', '.join(VALID_DTYPES)}"
+        ) from exc
+
+
+def build_hf_model_kwargs(
+    *,
+    dtype: str = "auto",
+    attn_implementation: str | None = None,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build Hugging Face AutoModel kwargs without overriding library defaults."""
+    kwargs: dict[str, Any] = dict(extra or {})
+    torch_dtype = resolve_torch_dtype(dtype)
+    if torch_dtype is not None:
+        kwargs["torch_dtype"] = torch_dtype
+    if attn_implementation is not None:
+        if attn_implementation not in VALID_ATTN_IMPLEMENTATIONS:
+            raise ValueError(
+                f"Unknown attn_implementation {attn_implementation!r}. "
+                f"Expected one of: {', '.join(VALID_ATTN_IMPLEMENTATIONS)}"
+            )
+        kwargs["attn_implementation"] = attn_implementation
+    return kwargs
+
+
 def load_qwen3_local(
     source: ModelSource,
     *,
@@ -182,6 +224,10 @@ def load_qwen3_local(
     from mteb.models.model_implementations.qwen3_models import q3e_instruct_loader
 
     resolved_hub = hub_id or infer_qwen3_hub_id(source)
+    st_kwargs: dict[str, Any] = {}
+    if model_kwargs:
+        st_kwargs["model_kwargs"] = model_kwargs
+
     if resolved_hub:
         import mteb
 
@@ -191,8 +237,12 @@ def load_qwen3_local(
                 "Loading local Qwen3 via MTEB instruct loader (hub ref: %s)",
                 resolved_hub,
             )
-            kwargs = {**model_kwargs, "device": device}
-            return q3e_instruct_loader(source.path, revision=None, **kwargs)
+            return q3e_instruct_loader(
+                source.path,
+                revision=None,
+                device=device,
+                **st_kwargs,
+            )
 
     logger.warning(
         "No Qwen3 hub id resolved; loading SentenceTransformer with left padding. "
@@ -205,7 +255,7 @@ def load_qwen3_local(
         device=device,
         trust_remote_code=True,
         tokenizer_kwargs={"padding_side": "left"},
-        **model_kwargs,
+        **st_kwargs,
     )
 
 
@@ -231,11 +281,12 @@ class EuroBertEncoderWrapper:
 
         resolved_device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
-        model = AutoModel.from_pretrained(
-            model_path,
-            trust_remote_code=True,
-            torch_dtype=kwargs.get("torch_dtype"),
-        )
+        am_kwargs: dict[str, Any] = {"trust_remote_code": True}
+        if kwargs.get("torch_dtype") is not None:
+            am_kwargs["torch_dtype"] = kwargs["torch_dtype"]
+        if kwargs.get("attn_implementation") is not None:
+            am_kwargs["attn_implementation"] = kwargs["attn_implementation"]
+        model = AutoModel.from_pretrained(model_path, **am_kwargs)
         model.to(resolved_device)
         model.eval()
         wrapper = cls(model, tokenizer, resolved_device)
@@ -281,26 +332,40 @@ def load_embedding_model(
     *,
     model_type: str = "auto",
     device: str | None = None,
+    dtype: str = "auto",
+    attn_implementation: str | None = None,
     model_kwargs: dict[str, Any] | None = None,
 ) -> Any:
     """Load an embedding model from Hub or local path."""
     import mteb
     from sentence_transformers import SentenceTransformer
 
-    kwargs = dict(model_kwargs or {})
+    hf_kwargs = build_hf_model_kwargs(
+        dtype=dtype,
+        attn_implementation=attn_implementation,
+        extra=model_kwargs,
+    )
+    if hf_kwargs:
+        logger.info("HF model_kwargs: %s", {k: str(v) for k, v in hf_kwargs.items()})
+    else:
+        logger.info("HF model_kwargs: (library defaults)")
+
     resolved_type = detect_model_type(source, model_type)
+    st_kwargs: dict[str, Any] = {}
+    if hf_kwargs:
+        st_kwargs["model_kwargs"] = hf_kwargs
 
     if not source.is_local:
         meta = mteb.get_model_meta(source.path)
         if meta is not None:
             logger.info("Loading Hub model via MTEB registry: %s", source.path)
-            return meta.load_model(device=device, **kwargs)
+            return meta.load_model(device=device, **st_kwargs)
         logger.info("Loading Hub model via SentenceTransformer: %s", source.path)
         return SentenceTransformer(
             source.path,
             device=device,
             trust_remote_code=True,
-            **kwargs,
+            **st_kwargs,
         )
 
     if resolved_type == "qwen3":
@@ -308,7 +373,7 @@ def load_embedding_model(
             source,
             device=device,
             hub_id=source.hub_id,
-            model_kwargs=kwargs,
+            model_kwargs=hf_kwargs,
         )
 
     if resolved_type == "eurobert-base":
@@ -316,7 +381,7 @@ def load_embedding_model(
         return EuroBertEncoderWrapper.from_pretrained(
             source.path,
             device=device,
-            **kwargs,
+            **hf_kwargs,
         )
 
     logger.info(
@@ -328,7 +393,7 @@ def load_embedding_model(
         source.path,
         device=device,
         trust_remote_code=True,
-        **kwargs,
+        **st_kwargs,
     )
 
 
