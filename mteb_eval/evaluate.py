@@ -60,8 +60,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--offline", action="store_true", help="Enable HF offline mode.")
     parser.add_argument(
         "--benchmark",
-        default="MTEB(eng, v2)",
-        help="MTEB benchmark (default: MTEB(eng, v2)).",
+        default="MTEB(Multilingual, v2)",
+        help='MTEB benchmark (default: "MTEB(Multilingual, v2)").',
     )
     parser.add_argument(
         "--task-types",
@@ -81,17 +81,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dtype",
         choices=list(VALID_DTYPES),
-        default="auto",
-        help="Model weight dtype (default: auto = library default; bfloat16 recommended on H100).",
+        default="bfloat16",
+        help="Model weight dtype (default: bfloat16).",
     )
     parser.add_argument(
         "--attn-implementation",
         choices=list(VALID_ATTN_IMPLEMENTATIONS),
-        default=None,
-        help=(
-            "Optional HF attention backend (default: unset = library default, typically SDPA). "
-            "flash_attention_2 is opt-in and requires a compatible install."
-        ),
+        default="sdpa",
+        help="HF attention backend (default: sdpa).",
     )
     parser.add_argument("--batch-size", type=int, default=32, help="Default encode batch size.")
     parser.add_argument("--query-batch-size", type=int, default=None, help="Query batch size.")
@@ -109,8 +106,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--continue-on-error",
-        action="store_true",
-        help="Log task failures and continue with remaining tasks (default: stop on first error).",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Continue after task failures (default: on). Use --no-continue-on-error to stop.",
     )
     parser.add_argument(
         "--max-seq-len",

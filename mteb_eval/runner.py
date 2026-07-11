@@ -130,8 +130,8 @@ def run_evaluation(
         source,
         model_type=args.model_type,
         device=args.device,
-        dtype=getattr(args, "dtype", "auto"),
-        attn_implementation=getattr(args, "attn_implementation", None),
+        dtype=getattr(args, "dtype", "bfloat16"),
+        attn_implementation=getattr(args, "attn_implementation", "sdpa"),
     )
     configure_max_seq_len(model, args.max_seq_len)
     configure_prompt_prefixes(
@@ -144,10 +144,13 @@ def run_evaluation(
     languages = languages_from_args(args)
     if languages:
         logger.info(
-            "Language filter: %d code(s), exclusive=%s",
+            "Language filter active (%d code(s), exclusive=%s): %s",
             len(languages),
             args.exclusive_language_filter,
+            ", ".join(languages),
         )
+    else:
+        logger.info("Language filter disabled (all subsets)")
 
     if task_names is not None:
         names = task_names
@@ -165,7 +168,12 @@ def run_evaluation(
         exclusive_language_filter=args.exclusive_language_filter,
         allow_missing_task_names=from_preset,
     )
-    logger.info("Evaluating %d task(s)...", len(tasks))
+    n_subsets = sum(len(t.hf_subsets) if t.hf_subsets else 1 for t in tasks)
+    logger.info(
+        "Evaluating %d task(s) across %d language subset(s)...",
+        len(tasks),
+        n_subsets,
+    )
 
     encode_kwargs = build_encode_kwargs(args)
     result_cache = ResultCache(cache_path=resolved_output)
