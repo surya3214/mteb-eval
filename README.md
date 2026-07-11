@@ -184,7 +184,8 @@ Manifest: [`mteb_eval/manifests/eng_v2_sts_retrieval.json`](mteb_eval/manifests/
 --offline
 --benchmark                Default: MTEB(eng, v2)
 --task-types               Default: STS Retrieval
---tasks                    Optional subset
+--tasks                    Optional explicit task subset
+--tasks-preset             retrieval-fast = 12 quick multilingual Retrieval tasks
 --languages                Language-script codes (e.g. eng-Latn deu-Latn)
 --languages-preset         ml16 = 16-language preset (EN KO AR ZH FR DE HI ID IT JP PT RU ES VI TH PL)
 --exclusive-language-filter  Keep only subsets where ALL languages match (default: ANY match)
@@ -221,6 +222,28 @@ python -m mteb_eval.evaluate \
 The `ml16` preset maps to: `eng-Latn`, `kor-Hang`, `ara-Arab`, `zho-Hans`, `fra-Latn`, `deu-Latn`, `hin-Deva`, `ind-Latn`, `ita-Latn`, `jpn-Jpan`, `por-Latn`, `rus-Cyrl`, `spa-Latn`, `vie-Latn`, `tha-Latn`, `pol-Latn`.
 
 Cross-lingual subsets (e.g. `en-de` in STS17) are kept when **any** language in the pair is in your list. Use `--exclusive-language-filter` for strict all-language matching.
+
+## Fast Retrieval preset
+
+`--tasks-preset retrieval-fast` runs the 12 quicker multilingual Retrieval tasks and skips the heavy multi-subset ones.
+
+**Included (12):** ArguAna, SCIDOCS, AILAStatutes, LegalBenchCorporateLobbying, SpartQA, TempReasonL1, WinoGrande, StackOverflowQA, HagridRetrieval, StatcanDialogueDatasetRetrieval, TRECCOVID, LEMBPasskeyRetrieval
+
+**Omitted (6):** BelebeleRetrieval, MIRACLRetrievalHardNegatives, WikipediaRetrievalMultilingual, MLQARetrieval, TwitterHjerneRetrieval, CovidRetrieval
+
+```bash
+python -m mteb_eval.evaluate_parallel \
+  --cache-dir /data/hf_cache --offline \
+  --benchmark "MTEB(Multilingual, v2)" \
+  --task-types Retrieval \
+  --tasks-preset retrieval-fast \
+  --languages-preset ml16 \
+  --model Qwen/Qwen3-Embedding-4B \
+  --gpus 0,1,2,3 \
+  --output-dir results/qwen3-retrieval-fast
+```
+
+Typical H100 wall time for this preset is much lower than the full 18 Retrieval tasks (often ~30–90 min on 1 GPU for mid-size models, less with multi-GPU).
 
 ## Multi-GPU parallel evaluation
 
