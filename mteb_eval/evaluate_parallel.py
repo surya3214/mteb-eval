@@ -12,6 +12,7 @@ from pathlib import Path
 
 from mteb_eval.evaluate import build_parser as build_eval_parser
 from mteb_eval.languages import languages_from_args
+from mteb_eval.offline_compat import apply_mteb_offline_compat
 from mteb_eval.runner import run_evaluation
 from mteb_eval.summary import (
     build_summary_rows,
@@ -97,6 +98,7 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
     )
+    apply_mteb_offline_compat()
 
     gpu_ids = resolve_gpus(args.gpus)
     logger.info("Using %d GPU(s): %s", len(gpu_ids), ", ".join(gpu_ids))
