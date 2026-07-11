@@ -224,12 +224,12 @@ def test_continue_on_error_collects_failures(tmp_path: Path):
         tasks=None,
         tasks_preset=None,
         languages=None,
-        languages_preset=None,
+        languages_preset="ml16",
         exclusive_language_filter=False,
         output_dir=str(tmp_path / "out"),
         device="cpu",
-        dtype="auto",
-        attn_implementation=None,
+        dtype="bfloat16",
+        attn_implementation="sdpa",
         batch_size=8,
         query_batch_size=None,
         corpus_batch_size=None,
@@ -331,9 +331,19 @@ def test_resolve_languages_preset():
     assert langs == list(ML16_LANGUAGES)
 
 
-def test_resolve_languages_mutually_exclusive():
-    with pytest.raises(ValueError, match="not both"):
-        resolve_languages(languages=["eng-Latn"], languages_preset="ml16")
+def test_resolve_languages_explicit_overrides_preset():
+    langs = resolve_languages(languages=["eng-Latn"], languages_preset="ml16")
+    assert langs == ["eng-Latn"]
+
+
+def test_resolve_languages_none_disables_filter():
+    assert resolve_languages(languages_preset="none") is None
+    assert resolve_languages(languages_preset=None) is None
+
+
+def test_resolve_languages_default_is_ml16():
+    langs = resolve_languages()
+    assert langs == list(ML16_LANGUAGES)
 
 
 def test_filter_tasks_by_languages_sts17():
@@ -515,3 +525,126 @@ def test_language_summary_rows_and_csv(tmp_path: Path):
     detail_text = detail_csv.read_text(encoding="utf-8")
     assert "en-de" in detail_text
     assert detail_text.count("eng-Latn") >= 2
+
+
+def test_evaluate_cli_defaults():
+    from mteb_eval.evaluate import build_parser
+    from mteb_eval.languages import languages_from_args
+
+    args = build_parser().parse_args(
+        ["--default-cache", "--model", "org/model", "--output-dir", "/tmp/out"]
+    )
+    assert args.benchmark == "MTEB(Multilingual, v2)"
+    assert args.dtype == "bfloat16"
+    assert args.attn_implementation == "sdpa"
+    assert args.max_seq_len == 512
+    assert args.continue_on_error is True
+    assert args.languages_preset == "ml16"
+    langs = languages_from_args(args)
+    assert langs is not None and len(langs) == 16
+
+
+def test_evaluate_cli_no_continue_on_error():
+    from mteb_eval.evaluate import build_parser
+
+    args = build_parser().parse_args(
+        [
+            "--default-cache",
+            "--model",
+            "org/model",
+            "--output-dir",
+            "/tmp/out",
+            "--no-continue-on-error",
+        ]
+    )
+    assert args.continue_on_error is False
+
+
+def test_prefetch_cli_defaults():
+    from mteb_eval.prefetch import build_parser
+    from mteb_eval.languages import languages_from_args
+
+    args = build_parser().parse_args(["--default-cache"])
+    assert args.benchmark == "MTEB(Multilingual, v2)"
+    assert args.languages_preset == "ml16"
+    langs = languages_from_args(args)
+    assert langs is not None and len(langs) == 16
+
+
+def test_ml16_filters_belebele_subsets():
+    from mteb_eval.languages import ML16_LANGUAGES
+    from mteb_eval.tasks import resolve_tasks
+
+    tasks = resolve_tasks(
+        benchmark="MTEB(Multilingual, v2)",
+        task_types=["Retrieval"],
+        task_names=["BelebeleRetrieval"],
+        languages=list(ML16_LANGUAGES),
+    )
+    assert len(tasks) == 1
+    assert len(tasks[0].hf_subsets) < 376
+    assert len(tasks[0].hf_subsets) == 261
+
+
+def test_default_cli_languages_filter_belebele():
+    """Reproduce: omitting --languages-preset still applies ml16."""
+    from mteb_eval.evaluate import build_parser
+    from mteb_eval.languages import languages_from_args
+    from mteb_eval.tasks import resolve_tasks
+
+    args = build_parser().parse_args(
+        [
+            "--default-cache",
+            "--model",
+            "org/model",
+            "--output-dir",
+            "/tmp/out",
+            "--tasks",
+            "BelebeleRetrieval",
+            "--task-types",
+            "Retrieval",
+        ]
+    )
+    languages = languages_from_args(args)
+    assert languages is not None and len(languages) == 16
+    tasks = resolve_tasks(
+        benchmark=args.benchmark,
+        task_types=args.task_types,
+        task_names=args.tasks,
+        languages=languages,
+        exclusive_language_filter=args.exclusive_language_filter,
+    )
+    assert len(tasks) == 1
+    assert len(tasks[0].hf_subsets) == 261
+
+
+def test_languages_preset_none_keeps_all_belebele():
+    from mteb_eval.evaluate import build_parser
+    from mteb_eval.languages import languages_from_args
+    from mteb_eval.tasks import resolve_tasks
+
+    args = build_parser().parse_args(
+        [
+            "--default-cache",
+            "--model",
+            "org/model",
+            "--output-dir",
+            "/tmp/out",
+            "--tasks",
+            "BelebeleRetrieval",
+            "--task-types",
+            "Retrieval",
+            "--languages-preset",
+            "none",
+        ]
+    )
+    languages = languages_from_args(args)
+    assert languages is None
+    tasks = resolve_tasks(
+        benchmark=args.benchmark,
+        task_types=args.task_types,
+        task_names=args.tasks,
+        languages=languages,
+    )
+    assert len(tasks) == 1
+    assert len(tasks[0].hf_subsets) == 376

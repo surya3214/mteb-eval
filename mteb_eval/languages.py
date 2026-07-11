@@ -29,50 +29,59 @@ LANGUAGE_PRESETS: dict[str, tuple[str, ...]] = {
     "ml16": ML16_LANGUAGES,
 }
 
+DEFAULT_LANGUAGES_PRESET = "ml16"
+
 
 def resolve_languages(
     *,
     languages: Sequence[str] | None = None,
-    languages_preset: str | None = None,
+    languages_preset: str | None = DEFAULT_LANGUAGES_PRESET,
 ) -> list[str] | None:
-    """Resolve explicit language codes or a named preset into a language list."""
-    if languages is not None and languages_preset is not None:
-        raise ValueError("Use either --languages or --languages-preset, not both.")
-    if languages_preset is not None:
-        try:
-            return list(LANGUAGE_PRESETS[languages_preset])
-        except KeyError as exc:
-            known = ", ".join(sorted(LANGUAGE_PRESETS))
-            raise ValueError(
-                f"Unknown languages preset {languages_preset!r}. Known presets: {known}"
-            ) from exc
+    """Resolve explicit language codes or a named preset into a language list.
+
+    Priority: explicit ``--languages`` wins over ``--languages-preset``.
+    Preset ``none`` (or None) disables filtering.
+    """
     if languages is not None:
         return list(languages)
-    return None
+    if languages_preset is None or languages_preset == "none":
+        return None
+    try:
+        return list(LANGUAGE_PRESETS[languages_preset])
+    except KeyError as exc:
+        known = ", ".join([*sorted(LANGUAGE_PRESETS), "none"])
+        raise ValueError(
+            f"Unknown languages preset {languages_preset!r}. Known presets: {known}"
+        ) from exc
 
 
 def languages_from_args(args: argparse.Namespace) -> list[str] | None:
     """Read resolved languages from parsed CLI args."""
     return resolve_languages(
         languages=getattr(args, "languages", None),
-        languages_preset=getattr(args, "languages_preset", None),
+        languages_preset=getattr(args, "languages_preset", DEFAULT_LANGUAGES_PRESET),
     )
 
 
 def add_language_arguments(parser: argparse.ArgumentParser) -> None:
     """Register --languages / --languages-preset / --exclusive-language-filter."""
-    lang_group = parser.add_mutually_exclusive_group()
-    lang_group.add_argument(
+    parser.add_argument(
         "--languages",
         nargs="+",
         default=None,
-        help="Language-script codes to keep (e.g. eng-Latn deu-Latn).",
+        help=(
+            "Language-script codes to keep (e.g. eng-Latn deu-Latn). "
+            "Overrides --languages-preset when set."
+        ),
     )
-    lang_group.add_argument(
+    parser.add_argument(
         "--languages-preset",
-        choices=sorted(LANGUAGE_PRESETS),
-        default=None,
-        help="Named language preset (ml16 = 16-language multilingual set).",
+        choices=[*sorted(LANGUAGE_PRESETS), "none"],
+        default=DEFAULT_LANGUAGES_PRESET,
+        help=(
+            "Named language preset (default: ml16). "
+            "Use 'none' to evaluate all language subsets."
+        ),
     )
     parser.add_argument(
         "--exclusive-language-filter",

@@ -1,6 +1,6 @@
 # MTEB Offline Eval Toolkit
 
-Prefetch **MTEB(eng, v2) STS + Retrieval** datasets (19 tasks) on an internet-connected machine, transfer the Hugging Face cache to a GPU/offline host, and evaluate embedding models from **Hub IDs** or **local checkpoint folders**.
+Prefetch and evaluate embedding models on **MTEB(Multilingual, v2)** (default), filtered to the **ml16** language preset. Also supports the older eng STS+Retrieval 19-task set via `--benchmark "MTEB(eng, v2)" --languages-preset none`.
 
 Pinned dependencies in [`requirements.txt`](requirements.txt) keep scores reproducible across machines.
 
@@ -182,12 +182,12 @@ Manifest: [`mteb_eval/manifests/eng_v2_sts_retrieval.json`](mteb_eval/manifests/
 --model-type               auto | qwen3 | harrier | sentence-transformer | eurobert-base
 --cache-dir / --default-cache
 --offline
---benchmark                Default: MTEB(eng, v2)
+--benchmark                Default: MTEB(Multilingual, v2)
 --task-types               Default: STS Retrieval
 --tasks                    Optional explicit task subset
 --tasks-preset             retrieval-fast = 12 quick multilingual Retrieval tasks
---languages                Language-script codes (e.g. eng-Latn deu-Latn)
---languages-preset         ml16 = 16-language preset (EN KO AR ZH FR DE HI ID IT JP PT RU ES VI TH PL)
+--languages                Language-script codes (overrides preset)
+--languages-preset         Default: ml16 (use none for all languages)
 --exclusive-language-filter  Keep only subsets where ALL languages match (default: ANY match)
 --output-dir               Results + summary.json + summary.csv + language CSVs (required)
 --batch-size / --query-batch-size / --corpus-batch-size
@@ -195,31 +195,29 @@ Manifest: [`mteb_eval/manifests/eng_v2_sts_retrieval.json`](mteb_eval/manifests/
 --query-prefix             Optional query prefix (SentenceTransformer `prompts['query']`)
 --document-prefix          Optional document/passage prefix (`prompts['document']`)
 --device                   cuda, cpu, mps
---dtype                    auto | float32 | bfloat16 | float16 (default: auto)
---attn-implementation      Optional: sdpa | eager | flash_attention_2 (default: unset)
+--dtype                    Default: bfloat16 (also: auto | float32 | float16)
+--attn-implementation      Default: sdpa (also: eager | flash_attention_2)
 --overwrite                only-missing | always | never
---continue-on-error        Log failures and continue (default: stop on first error)
+--continue-on-error        Default: on (use --no-continue-on-error to stop on first error)
 ```
 
-Throughput tips: use `--dtype bfloat16` on H100 for lower VRAM / higher batch sizes. Leave `--attn-implementation` unset unless you need an explicit backend; `flash_attention_2` is opt-in and requires a compatible install. These flags only affect model loading (`model_kwargs`); MTEB scoring is unchanged.
+Throughput tips: defaults use `--dtype bfloat16` and `--attn-implementation sdpa`. Language filtering defaults to `--languages-preset ml16`. Use `--languages-preset none` for all subsets. These flags only affect model loading / task subset selection; MTEB scoring is unchanged.
+
 ## Multilingual evaluation (16 languages)
 
-For `MTEB(Multilingual, v2)`, use `--languages-preset ml16` to evaluate only your supported languages. Tasks with no overlapping subsets are skipped automatically (e.g. `TwitterHjerneRetrieval` for Danish-only).
+For `MTEB(Multilingual, v2)` (the default benchmark), `--languages-preset ml16` is **on by default** so only your 16 supported languages are evaluated. Tasks with no overlapping subsets are skipped automatically (e.g. `TwitterHjerneRetrieval` for Danish-only). Use `--languages-preset none` to disable.
 
 ```bash
 python -m mteb_eval.prefetch \
-  --cache-dir /data/hf_cache \
-  --benchmark "MTEB(Multilingual, v2)" \
-  --languages-preset ml16 \
-  --no-validate-manifest
+  --cache-dir /data/hf_cache
+  # defaults: Multilingual v2 + ml16 (no --no-validate-manifest needed)
 
 python -m mteb_eval.evaluate \
   --cache-dir /data/hf_cache --offline \
-  --benchmark "MTEB(Multilingual, v2)" \
-  --languages-preset ml16 \
   --model Qwen/Qwen3-Embedding-4B \
   --output-dir results/qwen3-ml16 \
   --device cuda
+  # defaults: Multilingual v2, ml16, bfloat16, sdpa, continue-on-error
 ```
 
 The `ml16` preset maps to: `eng-Latn`, `kor-Hang`, `ara-Arab`, `zho-Hans`, `fra-Latn`, `deu-Latn`, `hin-Deva`, `ind-Latn`, `ita-Latn`, `jpn-Jpan`, `por-Latn`, `rus-Cyrl`, `spa-Latn`, `vie-Latn`, `tha-Latn`, `pol-Latn`.
@@ -237,10 +235,8 @@ Cross-lingual subsets (e.g. `en-de` in STS17) are kept when **any** language in 
 ```bash
 python -m mteb_eval.evaluate_parallel \
   --cache-dir /data/hf_cache --offline \
-  --benchmark "MTEB(Multilingual, v2)" \
   --task-types Retrieval \
   --tasks-preset retrieval-fast \
-  --languages-preset ml16 \
   --model Qwen/Qwen3-Embedding-4B \
   --gpus 0,1,2,3 \
   --output-dir results/qwen3-retrieval-fast
@@ -255,8 +251,6 @@ Use `evaluate_parallel` to split tasks across GPUs (one model copy per GPU). Wal
 ```bash
 python -m mteb_eval.evaluate_parallel \
   --cache-dir /data/hf_cache --offline \
-  --benchmark "MTEB(Multilingual, v2)" \
-  --languages-preset ml16 \
   --model Qwen/Qwen3-Embedding-4B \
   --gpus 0,1,2,3 \
   --output-dir results/qwen3-ml16-parallel \
@@ -279,11 +273,11 @@ Shell wrapper: [`scripts/evaluate_parallel.sh`](scripts/evaluate_parallel.sh).
 - **Local folder load fails:** Folder must contain ST artifacts (`modules.json`, `config_sentence_transformers.json`) or transformers weights (`config.json` + `*.safetensors`).
 - **Qwen3 local scores differ:** Pass `--hub-id` so the MTEB instruct wrapper is applied.
 - **Hub id passed to `--model-path`:** Use `--model <repo_id>` instead; `--model-path` must be an existing directory.
-- **One task fails mid-run:** By default evaluation stops on the first error. Use `--continue-on-error` to finish remaining tasks; failed tasks appear as `FAILED` in the summary and the process exits with code 1.
+- **One task fails mid-run:** By default `--continue-on-error` is on so remaining tasks finish; failed tasks appear as `FAILED` in the summary and the process exits with code 1. Use `--no-continue-on-error` to stop on the first error.
 - **Custom query/document prefixes:** Use `--query-prefix` / `--document-prefix` for SentenceTransformer-style models (e.g. `query: ` / `document: `). Instruct models (Qwen3, Harrier) use per-task instructions instead; prefixes are printed before each task runs.
 - **STS22 OOM on long news articles:** Lower `--batch-size` (4–16 for large models) and/or reduce `--max-seq-len` (default 512). GPU memory is released between tasks via `gc.collect()` and `torch.cuda.empty_cache()`. Try `--dtype bfloat16` on Ampere+ GPUs to free VRAM.
 - **bf16 vs fp32 scores:** `--dtype bfloat16` can produce tiny score deltas vs float32; still a valid MTEB run, but not bit-identical.
-- **FlashAttention-2 failures:** Only use `--attn-implementation flash_attention_2` when FA2/kernels are installed and the model supports it. Prefer leaving attention unset (library SDPA default).
+- **FlashAttention-2 failures:** Only use `--attn-implementation flash_attention_2` when FA2/kernels are installed and the model supports it. Prefer the default `sdpa`.
 
 ## Tests
 

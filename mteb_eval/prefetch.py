@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Prefetch MTEB(eng, v2) STS + Retrieval datasets into HF cache.",
+        description="Prefetch MTEB STS + Retrieval datasets into HF cache.",
     )
     cache = parser.add_mutually_exclusive_group(required=True)
     cache.add_argument(
@@ -37,8 +37,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--benchmark",
-        default="MTEB(eng, v2)",
-        help="MTEB benchmark name (default: MTEB(eng, v2)).",
+        default="MTEB(Multilingual, v2)",
+        help='MTEB benchmark name (default: "MTEB(Multilingual, v2)").',
     )
     parser.add_argument(
         "--task-types",
@@ -56,15 +56,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--validate-manifest",
-        action="store_true",
-        default=True,
-        help="Validate resolved tasks against shipped manifest (default: on).",
-    )
-    parser.add_argument(
-        "--no-validate-manifest",
-        action="store_false",
-        dest="validate_manifest",
-        help="Skip manifest validation.",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Validate against eng STS+Retrieval manifest. "
+            "Default: on only for MTEB(eng, v2) without task/language overrides."
+        ),
     )
     parser.add_argument(
         "-v",
@@ -119,16 +116,24 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     names, from_preset = task_names_from_args(args)
+    languages = languages_from_args(args)
     tasks = resolve_tasks(
         benchmark=args.benchmark,
         task_types=args.task_types,
         task_names=names,
-        languages=languages_from_args(args),
+        languages=languages,
         exclusive_language_filter=args.exclusive_language_filter,
         allow_missing_task_names=from_preset,
     )
 
-    if args.validate_manifest and names is None:
+    should_validate = args.validate_manifest
+    if should_validate is None:
+        should_validate = (
+            args.benchmark == "MTEB(eng, v2)"
+            and names is None
+            and languages is None
+        )
+    if should_validate:
         validate_against_manifest(tasks)
 
     logger.info("Prefetching %d task(s)...", len(tasks))
