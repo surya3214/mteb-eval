@@ -195,10 +195,13 @@ Manifest: [`mteb_eval/manifests/eng_v2_sts_retrieval.json`](mteb_eval/manifests/
 --query-prefix             Optional query prefix (SentenceTransformer `prompts['query']`)
 --document-prefix          Optional document/passage prefix (`prompts['document']`)
 --device                   cuda, cpu, mps
+--dtype                    auto | float32 | bfloat16 | float16 (default: auto)
+--attn-implementation      Optional: sdpa | eager | flash_attention_2 (default: unset)
 --overwrite                only-missing | always | never
 --continue-on-error        Log failures and continue (default: stop on first error)
 ```
 
+Throughput tips: use `--dtype bfloat16` on H100 for lower VRAM / higher batch sizes. Leave `--attn-implementation` unset unless you need an explicit backend; `flash_attention_2` is opt-in and requires a compatible install. These flags only affect model loading (`model_kwargs`); MTEB scoring is unchanged.
 ## Multilingual evaluation (16 languages)
 
 For `MTEB(Multilingual, v2)`, use `--languages-preset ml16` to evaluate only your supported languages. Tasks with no overlapping subsets are skipped automatically (e.g. `TwitterHjerneRetrieval` for Danish-only).
@@ -277,7 +280,9 @@ Shell wrapper: [`scripts/evaluate_parallel.sh`](scripts/evaluate_parallel.sh).
 - **Hub id passed to `--model-path`:** Use `--model <repo_id>` instead; `--model-path` must be an existing directory.
 - **One task fails mid-run:** By default evaluation stops on the first error. Use `--continue-on-error` to finish remaining tasks; failed tasks appear as `FAILED` in the summary and the process exits with code 1.
 - **Custom query/document prefixes:** Use `--query-prefix` / `--document-prefix` for SentenceTransformer-style models (e.g. `query: ` / `document: `). Instruct models (Qwen3, Harrier) use per-task instructions instead; prefixes are printed before each task runs.
-- **STS22 OOM on long news articles:** Lower `--batch-size` (4–16 for large models) and/or reduce `--max-seq-len` (default 512). GPU memory is released between tasks via `gc.collect()` and `torch.cuda.empty_cache()`.
+- **STS22 OOM on long news articles:** Lower `--batch-size` (4–16 for large models) and/or reduce `--max-seq-len` (default 512). GPU memory is released between tasks via `gc.collect()` and `torch.cuda.empty_cache()`. Try `--dtype bfloat16` on Ampere+ GPUs to free VRAM.
+- **bf16 vs fp32 scores:** `--dtype bfloat16` can produce tiny score deltas vs float32; still a valid MTEB run, but not bit-identical.
+- **FlashAttention-2 failures:** Only use `--attn-implementation flash_attention_2` when FA2/kernels are installed and the model supports it. Prefer leaving attention unset (library SDPA default).
 
 ## Tests
 

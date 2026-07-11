@@ -14,7 +14,13 @@ import pytest
 from mteb_eval.cache import configure_cache
 from mteb_eval.languages import ML16_LANGUAGES, resolve_languages
 from mteb_eval.runner import release_task_memory
-from mteb_eval.model_loader import configure_max_seq_len, resolve_model_source, validate_local_checkpoint
+from mteb_eval.model_loader import (
+    build_hf_model_kwargs,
+    configure_max_seq_len,
+    resolve_model_source,
+    resolve_torch_dtype,
+    validate_local_checkpoint,
+)
 from mteb_eval.prompts import configure_prompt_prefixes
 from mteb_eval.summary import (
     build_summary_rows,
@@ -218,6 +224,8 @@ def test_continue_on_error_collects_failures(tmp_path: Path):
         exclusive_language_filter=False,
         output_dir=str(tmp_path / "out"),
         device="cpu",
+        dtype="auto",
+        attn_implementation=None,
         batch_size=8,
         query_batch_size=None,
         corpus_batch_size=None,
@@ -418,3 +426,46 @@ def test_resolve_tasks_retrieval_fast_on_multilingual():
     names = {t.metadata.name for t in tasks}
     assert names == set(RETRIEVAL_FAST_TASKS)
     assert names.isdisjoint(RETRIEVAL_FAST_OMITTED)
+
+
+def test_build_hf_model_kwargs_auto_empty():
+    assert build_hf_model_kwargs(dtype="auto") == {}
+
+
+def test_build_hf_model_kwargs_bfloat16():
+    import torch
+
+    kwargs = build_hf_model_kwargs(dtype="bfloat16")
+    assert kwargs == {"torch_dtype": torch.bfloat16}
+
+
+def test_build_hf_model_kwargs_attn_only_when_set():
+    import torch
+
+    assert "attn_implementation" not in build_hf_model_kwargs(dtype="auto")
+    kwargs = build_hf_model_kwargs(dtype="float16", attn_implementation="sdpa")
+    assert kwargs["torch_dtype"] == torch.float16
+    assert kwargs["attn_implementation"] == "sdpa"
+
+
+def test_resolve_torch_dtype_auto_is_none():
+    assert resolve_torch_dtype("auto") is None
+
+
+def test_load_embedding_model_passes_nested_model_kwargs():
+    from mteb_eval.model_loader import ModelSource, load_embedding_model
+
+    source = ModelSource(path="org/demo-model", is_local=False, hub_id="org/demo-model")
+    with (
+        patch("mteb.get_model_meta", return_value=None),
+        patch("sentence_transformers.SentenceTransformer") as mock_st,
+    ):
+        mock_st.return_value = MagicMock()
+        load_embedding_model(source, dtype="bfloat16", attn_implementation="sdpa")
+
+    _, kwargs = mock_st.call_args
+    import torch
+
+    assert kwargs["model_kwargs"]["torch_dtype"] == torch.bfloat16
+    assert kwargs["model_kwargs"]["attn_implementation"] == "sdpa"
+    assert "torch_dtype" not in kwargs
