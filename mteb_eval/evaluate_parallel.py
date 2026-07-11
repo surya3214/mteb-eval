@@ -16,7 +16,9 @@ from mteb_eval.runner import run_evaluation
 from mteb_eval.summary import (
     build_summary_rows,
     merge_shard_results,
+    print_language_summary,
     print_summary,
+    write_language_outputs,
     write_summary_csv,
 )
 from mteb_eval.tasks import partition_task_names, resolve_tasks, task_names_from_args
@@ -165,6 +167,7 @@ def main(argv: list[str] | None = None) -> int:
     csv_path = output_dir / "summary.csv"
     write_summary_csv(csv_path, summary_rows, include_average=True)
     logger.info("Wrote merged summary CSV to %s", csv_path)
+    write_language_outputs(output_dir, merged.model_result)
 
     print_summary(
         merged.model_result,
@@ -172,6 +175,7 @@ def main(argv: list[str] | None = None) -> int:
         failures=merged.failures,
         task_prompts=merged.task_prompts,
     )
+    print_language_summary(merged.model_result)
 
     final_exit = 1 if any(code != 0 for code in exit_codes) or merged.exit_code else 0
     return final_exit

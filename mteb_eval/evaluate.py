@@ -14,7 +14,13 @@ from mteb_eval.model_loader import (
     VALID_DTYPES,
 )
 from mteb_eval.runner import run_evaluation
-from mteb_eval.summary import build_summary_rows, print_summary, write_summary_csv
+from mteb_eval.summary import (
+    build_summary_rows,
+    print_language_summary,
+    print_summary,
+    write_language_outputs,
+    write_summary_csv,
+)
 from mteb_eval.tasks import add_task_arguments
 
 
@@ -150,6 +156,7 @@ def main(argv: list[str] | None = None) -> int:
     csv_path = output_dir / "summary.csv"
     write_summary_csv(csv_path, summary_rows, include_average=True)
     logging.getLogger(__name__).info("Wrote summary CSV to %s", csv_path)
+    write_language_outputs(output_dir, result.model_result)
 
     print_summary(
         result.model_result,
@@ -157,6 +164,7 @@ def main(argv: list[str] | None = None) -> int:
         failures=result.failures,
         task_prompts=result.task_prompts,
     )
+    print_language_summary(result.model_result)
 
     return result.exit_code
 
