@@ -19,6 +19,7 @@ from mteb_eval.model_loader import (
     load_embedding_model,
     resolve_model_source,
 )
+from mteb_eval.offline_compat import apply_mteb_offline_compat
 from mteb_eval.prompts import configure_prompt_prefixes, print_task_prompts, resolve_task_prompts
 from mteb_eval.tasks import resolve_tasks, task_names_from_args
 
@@ -109,6 +110,7 @@ def run_evaluation(
         default_cache=args.default_cache,
         offline=args.offline,
     )
+    apply_mteb_offline_compat()
 
     source = resolve_model_source(
         model=args.model,

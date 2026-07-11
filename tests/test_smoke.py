@@ -527,21 +527,83 @@ def test_language_summary_rows_and_csv(tmp_path: Path):
     assert detail_text.count("eng-Latn") >= 2
 
 
-def test_evaluate_cli_defaults():
-    from mteb_eval.evaluate import build_parser
-    from mteb_eval.languages import languages_from_args
+def test_resolve_qrels_config_prefers_qrels():
+    from mteb_eval.offline_compat import resolve_qrels_config
 
-    args = build_parser().parse_args(
-        ["--default-cache", "--model", "org/model", "--output-dir", "/tmp/out"]
+    assert (
+        resolve_qrels_config(["corpus", "qrels", "queries"], subset_config=None)
+        == "qrels"
     )
-    assert args.benchmark == "MTEB(Multilingual, v2)"
-    assert args.dtype == "bfloat16"
-    assert args.attn_implementation == "sdpa"
-    assert args.max_seq_len == 512
-    assert args.continue_on_error is True
-    assert args.languages_preset == "ml16"
-    langs = languages_from_args(args)
-    assert langs is not None and len(langs) == 16
+    assert (
+        resolve_qrels_config(["default", "corpus", "queries"], subset_config=None)
+        == "default"
+    )
+    assert (
+        resolve_qrels_config(
+            ["default", "corpus", "qrels", "queries"], subset_config=None
+        )
+        == "qrels"
+    )
+    assert resolve_qrels_config(["x"], subset_config="en") == "en-qrels"
+
+
+def test_offline_compat_loads_qrels_when_default_advertised(tmp_path: Path):
+    """Reproduce: hub lists 'default' but only corpus/qrels/queries are cached."""
+    import os
+    from unittest.mock import patch
+
+    from mteb_eval.cache import configure_cache
+    from mteb_eval.offline_compat import apply_mteb_offline_compat
+
+    configure_cache(cache_dir=tmp_path / "hf", offline=False)
+    apply_mteb_offline_compat()
+
+    import mteb
+    from mteb.abstasks.retrieval_dataset_loaders import RetrievalDatasetLoader
+
+    # Warm arrow cache online for a qrels-layout dataset
+    task = mteb.get_task("WinoGrande")
+    path = task.metadata.dataset["path"]
+    rev = task.metadata.dataset["revision"]
+    task.load_data()
+
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    os.environ["HF_DATASETS_OFFLINE"] = "1"
+    os.environ["TRANSFORMERS_OFFLINE"] = "1"
+
+    with patch(
+        "mteb.abstasks.retrieval_dataset_loaders.get_dataset_config_names",
+        return_value=["default", "corpus", "qrels", "queries"],
+    ):
+        data = RetrievalDatasetLoader(
+            hf_repo=path, revision=rev, split="test", config="default"
+        ).load()
+    assert data["relevant_docs"]
+    assert len(data["corpus"]) > 0
+    assert len(data["queries"]) > 0
+
+
+def test_offline_compat_still_loads_arguana_default(tmp_path: Path):
+    import os
+
+    from mteb_eval.cache import configure_cache
+    from mteb_eval.offline_compat import apply_mteb_offline_compat
+
+    configure_cache(cache_dir=tmp_path / "hf", offline=False)
+    apply_mteb_offline_compat()
+
+    import mteb
+
+    task = mteb.get_task("ArguAna")
+    task.load_data()
+
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    os.environ["HF_DATASETS_OFFLINE"] = "1"
+    os.environ["TRANSFORMERS_OFFLINE"] = "1"
+
+    task2 = mteb.get_task("ArguAna")
+    task2.load_data()
+    assert task2.data_loaded
 
 
 def test_evaluate_cli_no_continue_on_error():

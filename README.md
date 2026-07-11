@@ -274,6 +274,7 @@ Shell wrapper: [`scripts/evaluate_parallel.sh`](scripts/evaluate_parallel.sh).
 - **Qwen3 local scores differ:** Pass `--hub-id` so the MTEB instruct wrapper is applied.
 - **Hub id passed to `--model-path`:** Use `--model <repo_id>` instead; `--model-path` must be an existing directory.
 - **One task fails mid-run:** By default `--continue-on-error` is on so remaining tasks finish; failed tasks appear as `FAILED` in the summary and the process exits with code 1. Use `--no-continue-on-error` to stop on the first error.
+- **Offline Retrieval `Couldn't find cache for config 'default'`:** Some Hub datasets store qrels under config `qrels` (not `default`). Prefer prefetching with `python -m mteb_eval.prefetch` so all of `corpus` / `queries` / `qrels` (or `default`) land in the cache, and use this toolkit's evaluate entrypoints (they apply an offline qrels compatibility shim). Ensure `rsync` copies both `hub/` and `datasets/` under `--cache-dir`.
 - **Custom query/document prefixes:** Use `--query-prefix` / `--document-prefix` for SentenceTransformer-style models (e.g. `query: ` / `document: `). Instruct models (Qwen3, Harrier) use per-task instructions instead; prefixes are printed before each task runs.
 - **STS22 OOM on long news articles:** Lower `--batch-size` (4–16 for large models) and/or reduce `--max-seq-len` (default 512). GPU memory is released between tasks via `gc.collect()` and `torch.cuda.empty_cache()`. Try `--dtype bfloat16` on Ampere+ GPUs to free VRAM.
 - **bf16 vs fp32 scores:** `--dtype bfloat16` can produce tiny score deltas vs float32; still a valid MTEB run, but not bit-identical.
@@ -290,6 +291,7 @@ pytest tests/ -v
 ```
 mteb_eval/
   cache.py           HF cache / offline env setup
+  offline_compat.py  Offline Retrieval qrels config shim
   languages.py       Language presets (ml16) and CLI resolution
   tasks.py           Task resolution + manifest validation + partitioning
   runner.py          Shared evaluation loop

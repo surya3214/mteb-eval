@@ -9,6 +9,7 @@ import time
 
 from mteb_eval.cache import configure_cache
 from mteb_eval.languages import add_language_arguments, languages_from_args
+from mteb_eval.offline_compat import apply_mteb_offline_compat
 from mteb_eval.tasks import (
     add_task_arguments,
     dataset_info,
@@ -114,6 +115,7 @@ def main(argv: list[str] | None = None) -> int:
         cache_dir=args.cache_dir,
         default_cache=args.default_cache,
     )
+    apply_mteb_offline_compat()
 
     names, from_preset = task_names_from_args(args)
     languages = languages_from_args(args)
