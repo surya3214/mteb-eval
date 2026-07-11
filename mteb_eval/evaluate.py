@@ -11,6 +11,7 @@ from mteb_eval.languages import add_language_arguments
 from mteb_eval.model_loader import DEFAULT_MAX_SEQ_LEN
 from mteb_eval.runner import run_evaluation
 from mteb_eval.summary import build_summary_rows, print_summary, write_summary_csv
+from mteb_eval.tasks import add_task_arguments
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -58,7 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=["STS", "Retrieval"],
         help="Task types to evaluate.",
     )
-    parser.add_argument("--tasks", nargs="+", default=None, help="Optional task subset.")
+    add_task_arguments(parser)
     add_language_arguments(parser)
     parser.add_argument(
         "--output-dir",

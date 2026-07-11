@@ -20,7 +20,7 @@ from mteb_eval.model_loader import (
     resolve_model_source,
 )
 from mteb_eval.prompts import configure_prompt_prefixes, print_task_prompts, resolve_task_prompts
-from mteb_eval.tasks import resolve_tasks
+from mteb_eval.tasks import resolve_tasks, task_names_from_args
 
 if TYPE_CHECKING:
     from mteb.abstasks import AbsTask
@@ -147,13 +147,21 @@ def run_evaluation(
             args.exclusive_language_filter,
         )
 
-    names = task_names if task_names is not None else args.tasks
+    if task_names is not None:
+        names = task_names
+        from_preset = False
+    else:
+        names, from_preset = task_names_from_args(args)
+    if names and from_preset:
+        logger.info("Using tasks preset with %d name(s)", len(names))
+
     tasks: list[AbsTask] = resolve_tasks(
         benchmark=args.benchmark,
         task_types=args.task_types,
         task_names=names,
         languages=languages,
         exclusive_language_filter=args.exclusive_language_filter,
+        allow_missing_task_names=from_preset,
     )
     logger.info("Evaluating %d task(s)...", len(tasks))
 

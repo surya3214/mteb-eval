@@ -18,6 +18,37 @@ DEFAULT_BENCHMARK = "MTEB(eng, v2)"
 DEFAULT_TASK_TYPES = ("STS", "Retrieval")
 MANIFEST_NAME = "eng_v2_sts_retrieval.json"
 
+# Fast multilingual Retrieval subset: single-lang / small BEIR-style tasks.
+# Omits the multi-subset heavyweights that dominate wall-clock time.
+RETRIEVAL_FAST_TASKS: tuple[str, ...] = (
+    "ArguAna",
+    "SCIDOCS",
+    "AILAStatutes",
+    "LegalBenchCorporateLobbying",
+    "SpartQA",
+    "TempReasonL1",
+    "WinoGrande",
+    "StackOverflowQA",
+    "HagridRetrieval",
+    "StatcanDialogueDatasetRetrieval",
+    "TRECCOVID",
+    "LEMBPasskeyRetrieval",
+)
+
+# Remaining MTEB(Multilingual, v2) Retrieval tasks not in the fast preset.
+RETRIEVAL_FAST_OMITTED: tuple[str, ...] = (
+    "BelebeleRetrieval",
+    "MIRACLRetrievalHardNegatives",
+    "WikipediaRetrievalMultilingual",
+    "MLQARetrieval",
+    "TwitterHjerneRetrieval",
+    "CovidRetrieval",
+)
+
+TASK_PRESETS: dict[str, tuple[str, ...]] = {
+    "retrieval-fast": RETRIEVAL_FAST_TASKS,
+}
+
 
 def manifest_path() -> Path:
     return Path(__file__).parent / "manifests" / MANIFEST_NAME
@@ -31,6 +62,62 @@ def load_manifest() -> dict:
 def expected_task_names() -> list[str]:
     manifest = load_manifest()
     return [entry["name"] for entry in manifest["tasks"]]
+
+
+def resolve_task_names(
+    *,
+    tasks: Sequence[str] | None = None,
+    tasks_preset: str | None = None,
+) -> tuple[list[str] | None, bool]:
+    """Resolve explicit task names or a named preset.
+
+    Returns:
+        (task_names, from_preset). ``task_names`` is None when neither was set.
+    """
+    if tasks is not None and tasks_preset is not None:
+        raise ValueError("Use either --tasks or --tasks-preset, not both.")
+    if tasks_preset is not None:
+        try:
+            return list(TASK_PRESETS[tasks_preset]), True
+        except KeyError as exc:
+            known = ", ".join(sorted(TASK_PRESETS))
+            raise ValueError(
+                f"Unknown tasks preset {tasks_preset!r}. Known presets: {known}"
+            ) from exc
+    if tasks is not None:
+        return list(tasks), False
+    return None, False
+
+
+def task_names_from_args(args: object) -> tuple[list[str] | None, bool]:
+    """Read resolved task names from parsed CLI args."""
+    return resolve_task_names(
+        tasks=getattr(args, "tasks", None),
+        tasks_preset=getattr(args, "tasks_preset", None),
+    )
+
+
+def add_task_arguments(parser: object) -> None:
+    """Register --tasks / --tasks-preset (mutually exclusive)."""
+    import argparse
+
+    assert isinstance(parser, argparse.ArgumentParser)
+    task_group = parser.add_mutually_exclusive_group()
+    task_group.add_argument(
+        "--tasks",
+        nargs="+",
+        default=None,
+        help="Optional explicit task name subset.",
+    )
+    task_group.add_argument(
+        "--tasks-preset",
+        choices=sorted(TASK_PRESETS),
+        default=None,
+        help=(
+            "Named task preset. retrieval-fast = 12 quick multilingual Retrieval "
+            "tasks (skips Belebele/MIRACL/Wikipedia/MLQA/TwitterHjerne/Covid)."
+        ),
+    )
 
 
 def filter_tasks_by_languages(
@@ -71,6 +158,7 @@ def resolve_tasks(
     task_names: Iterable[str] | None = None,
     languages: Sequence[str] | None = None,
     exclusive_language_filter: bool = False,
+    allow_missing_task_names: bool = False,
 ) -> list["AbsTask"]:
     """Resolve MTEB tasks from benchmark, optionally filtered by type and/or name."""
     import mteb
@@ -84,7 +172,20 @@ def resolve_tasks(
         tasks = [t for t in tasks if t.metadata.name in names]
         missing = names - {t.metadata.name for t in tasks}
         if missing:
-            raise ValueError(f"Unknown task name(s): {sorted(missing)}")
+            if allow_missing_task_names:
+                logger.warning(
+                    "Preset/task names not in benchmark %r with types %s: %s",
+                    benchmark,
+                    types,
+                    sorted(missing),
+                )
+            else:
+                raise ValueError(f"Unknown task name(s): {sorted(missing)}")
+        if not tasks:
+            raise ValueError(
+                f"No tasks remain after applying task names {sorted(names)} "
+                f"for benchmark {benchmark!r} with types {types}."
+            )
 
     if languages:
         tasks = filter_tasks_by_languages(

@@ -23,10 +23,13 @@ from mteb_eval.summary import (
     write_summary_csv,
 )
 from mteb_eval.tasks import (
+    RETRIEVAL_FAST_OMITTED,
+    RETRIEVAL_FAST_TASKS,
     expected_task_names,
     filter_tasks_by_languages,
     load_manifest,
     partition_task_names,
+    resolve_task_names,
     resolve_tasks,
     validate_against_manifest,
 )
@@ -209,6 +212,7 @@ def test_continue_on_error_collects_failures(tmp_path: Path):
         benchmark="MTEB(eng, v2)",
         task_types=["STS"],
         tasks=None,
+        tasks_preset=None,
         languages=None,
         languages_preset=None,
         exclusive_language_filter=False,
@@ -382,3 +386,35 @@ def test_merge_shard_results(tmp_path: Path):
     assert merged.timings["STS13"] == 2.0
     assert (output_dir / "summary.json").exists()
     assert (output_dir / "summary.csv").exists() is False  # CSV written by caller
+
+
+def test_retrieval_fast_preset_membership():
+    assert len(RETRIEVAL_FAST_TASKS) == 12
+    assert len(RETRIEVAL_FAST_OMITTED) == 6
+    assert set(RETRIEVAL_FAST_TASKS).isdisjoint(RETRIEVAL_FAST_OMITTED)
+    assert "ArguAna" in RETRIEVAL_FAST_TASKS
+    assert "BelebeleRetrieval" in RETRIEVAL_FAST_OMITTED
+    assert "MIRACLRetrievalHardNegatives" in RETRIEVAL_FAST_OMITTED
+
+
+def test_resolve_task_names_preset():
+    names, from_preset = resolve_task_names(tasks_preset="retrieval-fast")
+    assert from_preset is True
+    assert names == list(RETRIEVAL_FAST_TASKS)
+
+
+def test_resolve_task_names_mutually_exclusive():
+    with pytest.raises(ValueError, match="not both"):
+        resolve_task_names(tasks=["ArguAna"], tasks_preset="retrieval-fast")
+
+
+def test_resolve_tasks_retrieval_fast_on_multilingual():
+    tasks = resolve_tasks(
+        benchmark="MTEB(Multilingual, v2)",
+        task_types=["Retrieval"],
+        task_names=list(RETRIEVAL_FAST_TASKS),
+        allow_missing_task_names=True,
+    )
+    names = {t.metadata.name for t in tasks}
+    assert names == set(RETRIEVAL_FAST_TASKS)
+    assert names.isdisjoint(RETRIEVAL_FAST_OMITTED)

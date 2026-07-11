@@ -19,7 +19,7 @@ from mteb_eval.summary import (
     print_summary,
     write_summary_csv,
 )
-from mteb_eval.tasks import partition_task_names, resolve_tasks
+from mteb_eval.tasks import partition_task_names, resolve_tasks, task_names_from_args
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +72,7 @@ def _worker(
     worker_args = Namespace(**args_dict)
     worker_args.device = "cuda"
     worker_args.tasks = task_names
+    worker_args.tasks_preset = None
 
     logging.basicConfig(
         level=logging.DEBUG if worker_args.verbose else logging.INFO,
@@ -99,12 +100,14 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("Using %d GPU(s): %s", len(gpu_ids), ", ".join(gpu_ids))
 
     languages = languages_from_args(args)
+    names, from_preset = task_names_from_args(args)
     all_tasks = resolve_tasks(
         benchmark=args.benchmark,
         task_types=args.task_types,
-        task_names=args.tasks,
+        task_names=names,
         languages=languages,
         exclusive_language_filter=args.exclusive_language_filter,
+        allow_missing_task_names=from_preset,
     )
     task_names = [t.metadata.name for t in all_tasks]
     if not task_names:

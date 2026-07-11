@@ -10,8 +10,10 @@ import time
 from mteb_eval.cache import configure_cache
 from mteb_eval.languages import add_language_arguments, languages_from_args
 from mteb_eval.tasks import (
+    add_task_arguments,
     dataset_info,
     resolve_tasks,
+    task_names_from_args,
     validate_against_manifest,
 )
 
@@ -44,12 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=["STS", "Retrieval"],
         help="Task types to prefetch (default: STS Retrieval).",
     )
-    parser.add_argument(
-        "--tasks",
-        nargs="+",
-        default=None,
-        help="Optional subset of task names.",
-    )
+    add_task_arguments(parser)
     add_language_arguments(parser)
     parser.add_argument(
         "--models",
@@ -121,15 +118,17 @@ def main(argv: list[str] | None = None) -> int:
         default_cache=args.default_cache,
     )
 
+    names, from_preset = task_names_from_args(args)
     tasks = resolve_tasks(
         benchmark=args.benchmark,
         task_types=args.task_types,
-        task_names=args.tasks,
+        task_names=names,
         languages=languages_from_args(args),
         exclusive_language_filter=args.exclusive_language_filter,
+        allow_missing_task_names=from_preset,
     )
 
-    if args.validate_manifest and args.tasks is None:
+    if args.validate_manifest and names is None:
         validate_against_manifest(tasks)
 
     logger.info("Prefetching %d task(s)...", len(tasks))
