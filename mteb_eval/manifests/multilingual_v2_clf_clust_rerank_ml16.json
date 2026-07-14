@@ -1,0 +1,329 @@
+{
+  "benchmark": "MTEB(Multilingual, v2)",
+  "task_types": [
+    "Classification",
+    "Clustering",
+    "Reranking"
+  ],
+  "expanded_task_types": [
+    "Classification",
+    "Clustering",
+    "HierarchicalClustering",
+    "Reranking"
+  ],
+  "languages_preset": "ml16",
+  "expected_count": 38,
+  "counts_by_type": {
+    "Classification": 21,
+    "Clustering": 12,
+    "Reranking": 5
+  },
+  "approximate_total_mb": null,
+  "notes": "Inventory after default ml16 any-match language filter. HierarchicalClustering is expanded from Clustering when present. approximate_mb left null; sizes vary with subset filtering.",
+  "tasks": [
+    {
+      "name": "AfriSentiClassification",
+      "type": "Classification",
+      "dataset": "mteb/AfriSentiClassification",
+      "revision": "463850b9da81847227ff03f3f80a3310b93cba3c",
+      "ml16_subsets": 1,
+      "approximate_mb": null
+    },
+    {
+      "name": "AmazonCounterfactualClassification",
+      "type": "Classification",
+      "dataset": "mteb/amazon_counterfactual",
+      "revision": "1f7e6a9d6fa6e64c53d146e428565640410c0df1",
+      "ml16_subsets": 4,
+      "approximate_mb": null
+    },
+    {
+      "name": "CataloniaTweetClassification",
+      "type": "Classification",
+      "dataset": "mteb/CataloniaTweetClassification",
+      "revision": "a160e486a21cea511a4b23a90e6bd6f7920d3a8f",
+      "ml16_subsets": 1,
+      "approximate_mb": null
+    },
+    {
+      "name": "CyrillicTurkicLangClassification",
+      "type": "Classification",
+      "dataset": "mteb/CyrillicTurkicLangClassification",
+      "revision": "33fca064726e43e32ce645ed8d8c88c78f16c4d5",
+      "ml16_subsets": 1,
+      "approximate_mb": null
+    },
+    {
+      "name": "DBpediaClassification",
+      "type": "Classification",
+      "dataset": "mteb/DBpediaClassification",
+      "revision": "da1478c37d6ac46d5ca45aaf2a156020e2e9bfea",
+      "ml16_subsets": 1,
+      "approximate_mb": null
+    },
+    {
+      "name": "FinancialPhrasebankClassification",
+      "type": "Classification",
+      "dataset": "mteb/FinancialPhrasebankClassification",
+      "revision": "44023d2ee430a3be2d2ee573801616d9e1392fbd",
+      "ml16_subsets": 1,
+      "approximate_mb": null
+    },
+    {
+      "name": "IndicLangClassification",
+      "type": "Classification",
+      "dataset": "mteb/IndicLangClassification",
+      "revision": "36d9c05b5a4ba276554abc4eaaae87666d1e9c61",
+      "ml16_subsets": 1,
+      "approximate_mb": null
+    },
+    {
+      "name": "IndonesianIdClickbaitClassification",
+      "type": "Classification",
+      "dataset": "mteb/IndonesianIdClickbaitClassification",
+      "revision": "fa22e2fe229619ae18cd236e23f538abf828f171",
+      "ml16_subsets": 1,
+      "approximate_mb": null
+    },
+    {
+      "name": "ItaCaseholdClassification",
+      "type": "Classification",
+      "dataset": "mteb/ItaCaseholdClassification",
+      "revision": "2ca13897a3d1952b746e748a8584208699c0340e",
+      "ml16_subsets": 1,
+      "approximate_mb": null
+    },
+    {
+      "name": "KorSarcasmClassification",
+      "type": "Classification",
+      "dataset": "mteb/KorSarcasmClassification",
+      "revision": "6701f384372c04aa8c64b10582e72eb84135a1d4",
+      "ml16_subsets": 1,
+      "approximate_mb": null
+    },
+    {
+      "name": "MasakhaNEWSClassification",
+      "type": "Classification",
+      "dataset": "mteb/masakhanews",
+      "revision": "18193f187b92da67168c655c9973a165ed9593dd",
+      "ml16_subsets": 2,
+      "approximate_mb": null
+    },
+    {
+      "name": "MassiveIntentClassification",
+      "type": "Classification",
+      "dataset": "mteb/amazon_massive_intent",
+      "revision": "4672e20407010da34463acc759c162ca9734bca6",
+      "ml16_subsets": 15,
+      "approximate_mb": null
+    },
+    {
+      "name": "MultiHateClassification",
+      "type": "Classification",
+      "dataset": "mteb/multi-hatecheck",
+      "revision": "8f95949846bb9e33c6aaf730ccfdb8fe6bcfb7a9",
+      "ml16_subsets": 9,
+      "approximate_mb": null
+    },
+    {
+      "name": "NusaX-senti",
+      "type": "Classification",
+      "dataset": "mteb/NusaX-senti",
+      "revision": "7b2ff4facde8a6473f667a38edef1d03ce9ca0dc",
+      "ml16_subsets": 2,
+      "approximate_mb": null
+    },
+    {
+      "name": "PAC",
+      "type": "Classification",
+      "dataset": "mteb/PAC",
+      "revision": "d09e1c9f0f04f7f52f5cbfb74fa6c793c4eb84da",
+      "ml16_subsets": 1,
+      "approximate_mb": null
+    },
+    {
+      "name": "PoemSentimentClassification",
+      "type": "Classification",
+      "dataset": "mteb/PoemSentimentClassification",
+      "revision": "84af4753ebb04ca836fb54ce89a339839b03b748",
+      "ml16_subsets": 1,
+      "approximate_mb": null
+    },
+    {
+      "name": "PolEmo2.0-OUT",
+      "type": "Classification",
+      "dataset": "mteb/PolEmo2.0-OUT",
+      "revision": "4cdfe32a4a7b964afb7aaf9430b9ce6804f7d7e9",
+      "ml16_subsets": 1,
+      "approximate_mb": null
+    },
+    {
+      "name": "SentimentAnalysisHindi",
+      "type": "Classification",
+      "dataset": "mteb/SentimentAnalysisHindi",
+      "revision": "feab4a1cfc55f4b799f4ed902d8967e2ab68425c",
+      "ml16_subsets": 1,
+      "approximate_mb": null
+    },
+    {
+      "name": "SwissJudgementClassification",
+      "type": "Classification",
+      "dataset": "mteb/SwissJudgementClassification",
+      "revision": "2541705ce837c495e85aa3c44b41a92fa4bd12a8",
+      "ml16_subsets": 3,
+      "approximate_mb": null
+    },
+    {
+      "name": "ToxicConversationsClassification",
+      "type": "Classification",
+      "dataset": "mteb/toxic_conversations_50k",
+      "revision": "edfaf9da55d3dd50d43143d90c1ac476895ae6de",
+      "ml16_subsets": 1,
+      "approximate_mb": null
+    },
+    {
+      "name": "TweetTopicSingleClassification",
+      "type": "Classification",
+      "dataset": "mteb/TweetTopicSingleClassification",
+      "revision": "b4280e921a2760ce34d2dd80a9e5dc8bcbf61785",
+      "ml16_subsets": 1,
+      "approximate_mb": null
+    },
+    {
+      "name": "AlloProfClusteringS2S.v2",
+      "type": "Clustering",
+      "dataset": "mteb/AlloProfClusteringS2S.v2",
+      "revision": "c802b993cf2a8dcaeadb6f9cc8ccd364e251feaa",
+      "ml16_subsets": 1,
+      "approximate_mb": null
+    },
+    {
+      "name": "ArXivHierarchicalClusteringP2P",
+      "type": "Clustering",
+      "dataset": "mteb/arxiv-clustering-p2p",
+      "revision": "0bbdb47bcbe3a90093699aefeed338a0f28a7ee8",
+      "ml16_subsets": 1,
+      "approximate_mb": null
+    },
+    {
+      "name": "ArXivHierarchicalClusteringS2S",
+      "type": "Clustering",
+      "dataset": "mteb/arxiv-clustering-s2s",
+      "revision": "b73bd54100e5abfa6e3a23dcafb46fe4d2438dc3",
+      "ml16_subsets": 1,
+      "approximate_mb": null
+    },
+    {
+      "name": "BigPatentClustering.v2",
+      "type": "Clustering",
+      "dataset": "mteb/big-patent",
+      "revision": "58a863a958586a5d6ba51088b94ac74a46aa864f",
+      "ml16_subsets": 1,
+      "approximate_mb": null
+    },
+    {
+      "name": "BiorxivClusteringP2P.v2",
+      "type": "Clustering",
+      "dataset": "mteb/biorxiv-clustering-p2p",
+      "revision": "f5dbc242e11dd8e24def4c4268607a49e02946dc",
+      "ml16_subsets": 1,
+      "approximate_mb": null
+    },
+    {
+      "name": "HALClusteringS2S.v2",
+      "type": "Clustering",
+      "dataset": "mteb/HALClusteringS2S.v2",
+      "revision": "f1b4d7e7d58992005012c43c9dd2cc7436a1e378",
+      "ml16_subsets": 1,
+      "approximate_mb": null
+    },
+    {
+      "name": "MasakhaNEWSClusteringS2S",
+      "type": "Clustering",
+      "dataset": "mteb/MasakhaNEWSClusteringS2S",
+      "revision": "5dddcb139010208a28c3dcc2568560061c210097",
+      "ml16_subsets": 2,
+      "approximate_mb": null
+    },
+    {
+      "name": "MedrxivClusteringP2P.v2",
+      "type": "Clustering",
+      "dataset": "mteb/medrxiv-clustering-p2p",
+      "revision": "e7a26af6f3ae46b30dde8737f02c07b1505bcc73",
+      "ml16_subsets": 1,
+      "approximate_mb": null
+    },
+    {
+      "name": "PlscClusteringP2P.v2",
+      "type": "Clustering",
+      "dataset": "mteb/PlscClusteringP2P.v2",
+      "revision": "82128bcad8e4713bcaf0449ed7e02109aa00ca0c",
+      "ml16_subsets": 1,
+      "approximate_mb": null
+    },
+    {
+      "name": "SIB200ClusteringS2S",
+      "type": "Clustering",
+      "dataset": "mteb/sib200",
+      "revision": "a74d7350ea12af010cfb1c21e34f1f81fd2e615b",
+      "ml16_subsets": 15,
+      "approximate_mb": null
+    },
+    {
+      "name": "StackExchangeClustering.v2",
+      "type": "Clustering",
+      "dataset": "mteb/stackexchange-clustering",
+      "revision": "6cbc1f7b2bc0622f2e39d2c77fa502909748c259",
+      "ml16_subsets": 1,
+      "approximate_mb": null
+    },
+    {
+      "name": "WikiCitiesClustering",
+      "type": "Clustering",
+      "dataset": "mteb/WikiCitiesClustering",
+      "revision": "9f302fc86ddf2d9133ebcc03ee3a285f4729bb16",
+      "ml16_subsets": 1,
+      "approximate_mb": null
+    },
+    {
+      "name": "AlloprofReranking",
+      "type": "Reranking",
+      "dataset": "mteb/AlloprofReranking",
+      "revision": "a7d2d793f2e5ba55139bb10088c2e8ee2df2ce02",
+      "ml16_subsets": 1,
+      "approximate_mb": null
+    },
+    {
+      "name": "RuBQReranking",
+      "type": "Reranking",
+      "dataset": "mteb/RuBQReranking",
+      "revision": "e8233e2234f8b24ab47f203b69d1161c3c0bc5a1",
+      "ml16_subsets": 1,
+      "approximate_mb": null
+    },
+    {
+      "name": "VoyageMMarcoReranking",
+      "type": "Reranking",
+      "dataset": "mteb/VoyageMMarcoReranking",
+      "revision": "bd2050c52b480e48c51372b4ec98a1cbbc4515f2",
+      "ml16_subsets": 1,
+      "approximate_mb": null
+    },
+    {
+      "name": "WebLINXCandidatesReranking",
+      "type": "Reranking",
+      "dataset": "mteb/WebLINXCandidatesReranking",
+      "revision": "107fdc2402d2c4bfb2a720dfcfe1f6ff9d21151b",
+      "ml16_subsets": 1,
+      "approximate_mb": null
+    },
+    {
+      "name": "WikipediaRerankingMultilingual",
+      "type": "Reranking",
+      "dataset": "mteb/WikipediaRerankingMultilingual",
+      "revision": "803771c366038ed587b21e3d8fe25f8f73134fad",
+      "ml16_subsets": 5,
+      "approximate_mb": null
+    }
+  ]
+}

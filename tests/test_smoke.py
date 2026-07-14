@@ -33,10 +33,14 @@ from mteb_eval.summary import (
     write_summary_csv,
 )
 from mteb_eval.tasks import (
+    CLF_CLUST_RERANK_TYPES,
+    ML16_CLF_CLUST_RERANK_MANIFEST,
     RETRIEVAL_FAST_OMITTED,
     RETRIEVAL_FAST_TASKS,
+    expand_task_types,
     expected_task_names,
     filter_tasks_by_languages,
+    is_clf_clust_rerank_types,
     load_manifest,
     partition_task_names,
     resolve_task_names,
@@ -710,3 +714,110 @@ def test_languages_preset_none_keeps_all_belebele():
     )
     assert len(tasks) == 1
     assert len(tasks[0].hf_subsets) == 376
+
+
+def test_expand_task_types_includes_hierarchical_clustering():
+    assert expand_task_types(["Clustering"]) == [
+        "Clustering",
+        "HierarchicalClustering",
+    ]
+    assert expand_task_types(["Classification", "Clustering", "Reranking"]) == [
+        "Classification",
+        "Clustering",
+        "HierarchicalClustering",
+        "Reranking",
+    ]
+    assert expand_task_types(["STS", "Retrieval"]) == ["STS", "Retrieval"]
+
+
+def test_is_clf_clust_rerank_types():
+    assert is_clf_clust_rerank_types(CLF_CLUST_RERANK_TYPES)
+    assert is_clf_clust_rerank_types(["Reranking", "Classification", "Clustering"])
+    assert not is_clf_clust_rerank_types(["STS", "Retrieval"])
+    assert not is_clf_clust_rerank_types(["Classification", "Clustering"])
+
+
+def test_ml16_clf_clust_rerank_manifest():
+    manifest = load_manifest(ML16_CLF_CLUST_RERANK_MANIFEST)
+    assert manifest["benchmark"] == "MTEB(Multilingual, v2)"
+    assert manifest["languages_preset"] == "ml16"
+    assert manifest["expected_count"] == 38
+    assert manifest["counts_by_type"] == {
+        "Classification": 21,
+        "Clustering": 12,
+        "Reranking": 5,
+    }
+    assert len(manifest["tasks"]) == 38
+
+
+def test_resolve_ml16_clf_clust_rerank_matches_manifest():
+    tasks = resolve_tasks(
+        benchmark="MTEB(Multilingual, v2)",
+        task_types=list(CLF_CLUST_RERANK_TYPES),
+        languages=list(ML16_LANGUAGES),
+    )
+    assert len(tasks) == 38
+    validate_against_manifest(tasks, manifest_name=ML16_CLF_CLUST_RERANK_MANIFEST)
+    by_type: dict[str, int] = {}
+    for task in tasks:
+        by_type[task.metadata.type] = by_type.get(task.metadata.type, 0) + 1
+    assert by_type == {"Classification": 21, "Clustering": 12, "Reranking": 5}
+
+
+def test_ml16_shrinks_massive_intent_and_sib200():
+    tasks = resolve_tasks(
+        benchmark="MTEB(Multilingual, v2)",
+        task_types=["Classification", "Clustering"],
+        task_names=["MassiveIntentClassification", "SIB200ClusteringS2S"],
+        languages=list(ML16_LANGUAGES),
+    )
+    by_name = {t.metadata.name: t for t in tasks}
+    assert len(by_name["MassiveIntentClassification"].hf_subsets) == 15
+    assert len(by_name["SIB200ClusteringS2S"].hf_subsets) == 15
+
+
+def test_ml16_skips_non_overlapping_classification():
+    tasks = resolve_tasks(
+        benchmark="MTEB(Multilingual, v2)",
+        task_types=["Classification"],
+        task_names=["DalajClassification", "FinancialPhrasebankClassification"],
+        languages=list(ML16_LANGUAGES),
+    )
+    names = {t.metadata.name for t in tasks}
+    assert names == {"FinancialPhrasebankClassification"}
+
+
+def test_evaluate_cli_defaults_remain_sts_retrieval():
+    from mteb_eval.evaluate import build_parser
+
+    args = build_parser().parse_args(
+        ["--default-cache", "--model", "org/model", "--output-dir", "/tmp/out"]
+    )
+    assert args.task_types == ["STS", "Retrieval"]
+
+
+def test_prefetch_auto_validates_clf_clust_rerank_ml16():
+    from mteb_eval.prefetch import _resolve_manifest_validation
+
+    manifest = _resolve_manifest_validation(
+        should_validate=None,
+        benchmark="MTEB(Multilingual, v2)",
+        task_types=["Classification", "Clustering", "Reranking"],
+        names=None,
+        languages=list(ML16_LANGUAGES),
+        languages_preset="ml16",
+    )
+    assert manifest == ML16_CLF_CLUST_RERANK_MANIFEST
+
+    # Default STS+Retrieval should not auto-validate the clf manifest.
+    assert (
+        _resolve_manifest_validation(
+            should_validate=None,
+            benchmark="MTEB(Multilingual, v2)",
+            task_types=["STS", "Retrieval"],
+            names=None,
+            languages=list(ML16_LANGUAGES),
+            languages_preset="ml16",
+        )
+        is None
+    )

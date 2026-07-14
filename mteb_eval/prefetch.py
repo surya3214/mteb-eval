@@ -8,11 +8,19 @@ import sys
 import time
 
 from mteb_eval.cache import configure_cache
-from mteb_eval.languages import add_language_arguments, languages_from_args
+from mteb_eval.languages import (
+    DEFAULT_LANGUAGES_PRESET,
+    ML16_LANGUAGES,
+    add_language_arguments,
+    languages_from_args,
+)
 from mteb_eval.offline_compat import apply_mteb_offline_compat
 from mteb_eval.tasks import (
+    MANIFEST_NAME,
+    ML16_CLF_CLUST_RERANK_MANIFEST,
     add_task_arguments,
     dataset_info,
+    is_clf_clust_rerank_types,
     resolve_tasks,
     task_names_from_args,
     validate_against_manifest,
@@ -23,7 +31,11 @@ logger = logging.getLogger(__name__)
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Prefetch MTEB STS + Retrieval datasets into HF cache.",
+        description=(
+            "Prefetch MTEB datasets into HF cache. "
+            "Default: STS + Retrieval. Also supports Classification, Clustering, "
+            "and Reranking via --task-types."
+        ),
     )
     cache = parser.add_mutually_exclusive_group(required=True)
     cache.add_argument(
@@ -45,7 +57,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--task-types",
         nargs="+",
         default=["STS", "Retrieval"],
-        help="Task types to prefetch (default: STS Retrieval).",
+        help=(
+            "Task types to prefetch (default: STS Retrieval). "
+            "Also supports Classification Clustering Reranking."
+        ),
     )
     add_task_arguments(parser)
     add_language_arguments(parser)
@@ -60,8 +75,9 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=None,
         help=(
-            "Validate against eng STS+Retrieval manifest. "
-            "Default: on only for MTEB(eng, v2) without task/language overrides."
+            "Validate against a shipped task inventory manifest. "
+            "Default: on for MTEB(eng, v2) STS+Retrieval without overrides, "
+            "and for Multilingual v2 Classification+Clustering+Reranking with ml16."
         ),
     )
     parser.add_argument(
@@ -102,6 +118,51 @@ def prefetch_datasets(tasks: list) -> None:
         logger.info("  done in %.1fs", elapsed)
 
 
+def _resolve_manifest_validation(
+    *,
+    should_validate: bool | None,
+    benchmark: str,
+    task_types: list[str],
+    names: list[str] | None,
+    languages: list[str] | None,
+    languages_preset: str | None,
+) -> str | None:
+    """Return manifest filename to validate against, or None to skip."""
+    if should_validate is False:
+        return None
+
+    if should_validate is True:
+        if (
+            benchmark == "MTEB(Multilingual, v2)"
+            and is_clf_clust_rerank_types(task_types)
+            and names is None
+            and languages is not None
+            and set(languages) == set(ML16_LANGUAGES)
+        ):
+            return ML16_CLF_CLUST_RERANK_MANIFEST
+        return MANIFEST_NAME
+
+    # Auto mode
+    if (
+        benchmark == "MTEB(eng, v2)"
+        and names is None
+        and languages is None
+        and languages_preset == "none"
+    ):
+        return MANIFEST_NAME
+
+    if (
+        benchmark == "MTEB(Multilingual, v2)"
+        and is_clf_clust_rerank_types(task_types)
+        and names is None
+        and languages is not None
+        and set(languages) == set(ML16_LANGUAGES)
+    ):
+        return ML16_CLF_CLUST_RERANK_MANIFEST
+
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -128,15 +189,17 @@ def main(argv: list[str] | None = None) -> int:
         allow_missing_task_names=from_preset,
     )
 
-    should_validate = args.validate_manifest
-    if should_validate is None:
-        should_validate = (
-            args.benchmark == "MTEB(eng, v2)"
-            and names is None
-            and languages is None
-        )
-    if should_validate:
-        validate_against_manifest(tasks)
+    manifest_name = _resolve_manifest_validation(
+        should_validate=args.validate_manifest,
+        benchmark=args.benchmark,
+        task_types=args.task_types,
+        names=names,
+        languages=languages,
+        languages_preset=getattr(args, "languages_preset", DEFAULT_LANGUAGES_PRESET),
+    )
+    if manifest_name is not None:
+        validate_against_manifest(tasks, manifest_name=manifest_name)
+        logger.info("Validated against manifest %s", manifest_name)
 
     logger.info("Prefetching %d task(s)...", len(tasks))
     prefetch_datasets(tasks)
