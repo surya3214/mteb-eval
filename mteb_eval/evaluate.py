@@ -1,4 +1,4 @@
-"""Evaluate embedding models on MTEB STS + Retrieval tasks."""
+"""Evaluate embedding models on MTEB tasks (STS, Retrieval, Classification, Clustering, Reranking)."""
 
 from __future__ import annotations
 
@@ -26,7 +26,11 @@ from mteb_eval.tasks import add_task_arguments
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Evaluate an embedding model on MTEB STS + Retrieval tasks.",
+        description=(
+            "Evaluate an embedding model on MTEB tasks. "
+            "Default: STS + Retrieval. Pass Classification Clustering Reranking "
+            "via --task-types for the classification/clustering/reranking suite."
+        ),
     )
 
     cache = parser.add_mutually_exclusive_group(required=True)
@@ -67,7 +71,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--task-types",
         nargs="+",
         default=["STS", "Retrieval"],
-        help="Task types to evaluate.",
+        help=(
+            "Task types to evaluate (default: STS Retrieval). "
+            "Also supports Classification Clustering Reranking."
+        ),
     )
     add_task_arguments(parser)
     add_language_arguments(parser)

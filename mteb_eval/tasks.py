@@ -1,4 +1,4 @@
-"""MTEB(eng, v2) STS + Retrieval task resolution."""
+"""MTEB task resolution, language filtering, and manifest validation."""
 
 from __future__ import annotations
 
@@ -17,6 +17,19 @@ logger = logging.getLogger(__name__)
 DEFAULT_BENCHMARK = "MTEB(eng, v2)"
 DEFAULT_TASK_TYPES = ("STS", "Retrieval")
 MANIFEST_NAME = "eng_v2_sts_retrieval.json"
+ML16_CLF_CLUST_RERANK_MANIFEST = "multilingual_v2_clf_clust_rerank_ml16.json"
+
+# Task types that should also pull HierarchicalClustering (some MTEB versions
+# type ArXiv hierarchical tasks separately; Multilingual v2 currently uses Clustering).
+CLUSTERING_TYPE_ALIASES: dict[str, tuple[str, ...]] = {
+    "Clustering": ("Clustering", "HierarchicalClustering"),
+}
+
+CLF_CLUST_RERANK_TYPES: tuple[str, ...] = (
+    "Classification",
+    "Clustering",
+    "Reranking",
+)
 
 # Fast multilingual Retrieval subset: single-lang / small BEIR-style tasks.
 # Omits the multi-subset heavyweights that dominate wall-clock time.
@@ -50,18 +63,42 @@ TASK_PRESETS: dict[str, tuple[str, ...]] = {
 }
 
 
-def manifest_path() -> Path:
-    return Path(__file__).parent / "manifests" / MANIFEST_NAME
+def manifests_dir() -> Path:
+    return Path(__file__).parent / "manifests"
 
 
-def load_manifest() -> dict:
-    with manifest_path().open(encoding="utf-8") as f:
+def manifest_path(name: str = MANIFEST_NAME) -> Path:
+    return manifests_dir() / name
+
+
+def load_manifest(name: str = MANIFEST_NAME) -> dict:
+    with manifest_path(name).open(encoding="utf-8") as f:
         return json.load(f)
 
 
-def expected_task_names() -> list[str]:
-    manifest = load_manifest()
+def expected_task_names(name: str = MANIFEST_NAME) -> list[str]:
+    manifest = load_manifest(name)
     return [entry["name"] for entry in manifest["tasks"]]
+
+
+def expand_task_types(task_types: Iterable[str]) -> list[str]:
+    """Expand user-facing task types (e.g. Clustering → HierarchicalClustering)."""
+    expanded: list[str] = []
+    seen: set[str] = set()
+    for task_type in task_types:
+        aliases = CLUSTERING_TYPE_ALIASES.get(task_type, (task_type,))
+        for alias in aliases:
+            if alias not in seen:
+                seen.add(alias)
+                expanded.append(alias)
+    return expanded
+
+
+def is_clf_clust_rerank_types(task_types: Iterable[str]) -> bool:
+    """True when task_types are exactly Classification+Clustering+Reranking (order-insensitive)."""
+    requested = set(expand_task_types(task_types))
+    expected = set(expand_task_types(CLF_CLUST_RERANK_TYPES))
+    return requested == expected
 
 
 def resolve_task_names(
@@ -164,7 +201,8 @@ def resolve_tasks(
     import mteb
 
     bench = mteb.get_benchmark(benchmark)
-    types = list(task_types) if task_types is not None else list(DEFAULT_TASK_TYPES)
+    raw_types = list(task_types) if task_types is not None else list(DEFAULT_TASK_TYPES)
+    types = expand_task_types(raw_types)
     tasks = list(mteb.filter_tasks(bench, task_types=types))
 
     if task_names is not None:
@@ -213,9 +251,13 @@ def partition_task_names(task_names: Sequence[str], num_partitions: int) -> list
     return partitions
 
 
-def validate_against_manifest(tasks: list["AbsTask"]) -> None:
+def validate_against_manifest(
+    tasks: list["AbsTask"],
+    *,
+    manifest_name: str = MANIFEST_NAME,
+) -> None:
     """Ensure resolved tasks match the shipped manifest."""
-    expected = set(expected_task_names())
+    expected = set(expected_task_names(manifest_name))
     actual = {t.metadata.name for t in tasks}
     if actual != expected:
         missing = expected - actual
@@ -225,7 +267,10 @@ def validate_against_manifest(tasks: list["AbsTask"]) -> None:
             parts.append(f"missing: {sorted(missing)}")
         if extra:
             parts.append(f"extra: {sorted(extra)}")
-        raise ValueError("Task set does not match manifest — " + "; ".join(parts))
+        raise ValueError(
+            f"Task set does not match manifest {manifest_name!r} — "
+            + "; ".join(parts)
+        )
 
 
 def dataset_info(task: "AbsTask") -> dict:

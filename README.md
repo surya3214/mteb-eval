@@ -1,6 +1,6 @@
 # MTEB Offline Eval Toolkit
 
-Prefetch and evaluate embedding models on **MTEB(Multilingual, v2)** (default), filtered to the **ml16** language preset. Also supports the older eng STS+Retrieval 19-task set via `--benchmark "MTEB(eng, v2)" --languages-preset none`.
+Prefetch and evaluate embedding models on **MTEB(Multilingual, v2)** (default), filtered to the **ml16** language preset. Default task types are STS + Retrieval; Classification, Clustering, and Reranking are fully supported via `--task-types`. Also supports the older eng STS+Retrieval 19-task set via `--benchmark "MTEB(eng, v2)" --languages-preset none`.
 
 Pinned dependencies in [`requirements.txt`](requirements.txt) keep scores reproducible across machines.
 
@@ -183,7 +183,7 @@ Manifest: [`mteb_eval/manifests/eng_v2_sts_retrieval.json`](mteb_eval/manifests/
 --cache-dir / --default-cache
 --offline
 --benchmark                Default: MTEB(Multilingual, v2)
---task-types               Default: STS Retrieval
+--task-types               Default: STS Retrieval (also: Classification Clustering Reranking)
 --tasks                    Optional explicit task subset
 --tasks-preset             retrieval-fast = 12 quick multilingual Retrieval tasks
 --languages                Language-script codes (overrides preset)
@@ -223,6 +223,31 @@ python -m mteb_eval.evaluate \
 The `ml16` preset maps to: `eng-Latn`, `kor-Hang`, `ara-Arab`, `zho-Hans`, `fra-Latn`, `deu-Latn`, `hin-Deva`, `ind-Latn`, `ita-Latn`, `jpn-Jpan`, `por-Latn`, `rus-Cyrl`, `spa-Latn`, `vie-Latn`, `tha-Latn`, `pol-Latn`.
 
 Cross-lingual subsets (e.g. `en-de` in STS17) are kept when **any** language in the pair is in your list. Use `--exclusive-language-filter` for strict all-language matching.
+
+## Classification, Clustering, and Reranking
+
+Same offline + ml16 workflow as STS/Retrieval. Pass the three types explicitly (defaults stay STS + Retrieval for backward compatibility). Prefetch auto-validates against the shipped ml16 inventory (`mteb_eval/manifests/multilingual_v2_clf_clust_rerank_ml16.json`) when these types are selected with Multilingual v2 + ml16.
+
+```bash
+# Internet machine
+python -m mteb_eval.prefetch \
+  --cache-dir /data/hf_cache \
+  --task-types Classification Clustering Reranking
+
+rsync -av /data/hf_cache/ gpu-host:/data/hf_cache/
+
+# GPU machine
+python -m mteb_eval.evaluate \
+  --cache-dir /data/hf_cache --offline \
+  --task-types Classification Clustering Reranking \
+  --model Qwen/Qwen3-Embedding-4B \
+  --output-dir results/qwen3-clf-clust-rerank-ml16 \
+  --device cuda
+```
+
+Under ml16 this resolves to **38 tasks** (21 Classification, 12 Clustering, 5 Reranking). Tasks with no overlapping language subsets are skipped automatically. Requesting `Clustering` also expands to `HierarchicalClustering` when that type exists in the MTEB version.
+
+Bi-encoder embedding models work for Reranking the same way as Retrieval (encode + similarity). Wall time on 1× H100 for a ~200M model is typically ~1–1.5 hours; **WebLINXCandidatesReranking** dominates.
 
 ## Fast Retrieval preset
 
@@ -294,12 +319,14 @@ mteb_eval/
   offline_compat.py  Offline Retrieval qrels config shim
   languages.py       Language presets (ml16) and CLI resolution
   tasks.py           Task resolution + manifest validation + partitioning
+  manifests/         Task inventories (eng STS+Retrieval; ml16 Clf/Clust/Rerank)
   runner.py          Shared evaluation loop
   prefetch.py        Dataset (+ optional model) download CLI
   evaluate.py        Single-GPU evaluation CLI
   evaluate_parallel.py  Multi-GPU parallel evaluation coordinator
   model_loader.py    Hub + local model loading
-  manifests/         Static task manifest
+  prompts.py         Per-task prompt resolution
+  summary.py         CSV/JSON summaries + shard merge
 scripts/
   prefetch.sh
   evaluate.sh
