@@ -266,6 +266,151 @@ def write_summary_csv(
             )
 
 
+_SUMMARY_SHEET_COLUMNS = [
+    "task",
+    "score",
+    "time_s",
+    "status",
+    "query_prompt",
+    "document_prompt",
+    "error",
+]
+
+_TYPE_SHEET_ORDER = (
+    "STS",
+    "Classification",
+    "Clustering",
+    "HierarchicalClustering",
+    "Reranking",
+    "Retrieval",
+)
+
+
+def _format_summary_cell(row: dict[str, str | float | None], key: str) -> str | float:
+    if key == "score":
+        if row["score"] is None:
+            return ""
+        return float(row["score"])
+    if key == "time_s":
+        return float(row["time_s"])
+    return str(row.get(key, "") or "")
+
+
+def _write_sheet_rows(
+    ws: Any,
+    fieldnames: list[str],
+    rows: list[dict[str, Any]],
+) -> None:
+    ws.append(fieldnames)
+    for row in rows:
+        ws.append([row.get(name, "") for name in fieldnames])
+
+
+def write_results_workbook(
+    path: Path,
+    summary_rows: list[dict[str, str | float | None]],
+    results: Any,
+    *,
+    task_types_by_name: dict[str, str] | None = None,
+) -> Path:
+    """Write a multi-sheet Excel workbook with summary, per-type, language, and detail tabs."""
+    from openpyxl import Workbook
+
+    task_types_by_name = task_types_by_name or {}
+    wb = Workbook()
+
+    # Summary sheet
+    ws_summary = wb.active
+    ws_summary.title = "Summary"
+    summary_out = list(summary_rows)
+    if summary_rows:
+        summary_out.append(_average_row(summary_rows))
+    ws_summary.append(_SUMMARY_SHEET_COLUMNS)
+    for row in summary_out:
+        ws_summary.append(
+            [_format_summary_cell(row, key) for key in _SUMMARY_SHEET_COLUMNS]
+        )
+
+    # Per-type sheets (omit empty)
+    by_type: dict[str, list[dict[str, str | float | None]]] = {}
+    for row in summary_rows:
+        name = str(row["task"])
+        task_type = task_types_by_name.get(name)
+        if not task_type:
+            # HierarchicalClustering folded into Clustering sheet label preference
+            continue
+        # Present HierarchicalClustering under Clustering sheet
+        sheet_type = (
+            "Clustering" if task_type == "HierarchicalClustering" else task_type
+        )
+        by_type.setdefault(sheet_type, []).append(row)
+
+    for task_type in _TYPE_SHEET_ORDER:
+        rows = by_type.get(task_type)
+        if not rows:
+            continue
+        # Avoid duplicate Clustering key from Hierarchical alias in order list
+        if task_type == "HierarchicalClustering":
+            continue
+        ws = wb.create_sheet(title=task_type[:31])
+        typed_out = list(rows)
+        typed_out.append(_average_row(rows))
+        ws.append(_SUMMARY_SHEET_COLUMNS)
+        for row in typed_out:
+            ws.append(
+                [_format_summary_cell(row, key) for key in _SUMMARY_SHEET_COLUMNS]
+            )
+
+    # ByLanguage
+    lang_rows = build_language_summary_rows(results)
+    if lang_rows:
+        ws_lang = wb.create_sheet(title="ByLanguage")
+        lang_fieldnames = ["language", "mean_score", "n_scores", "n_tasks"]
+        formatted = []
+        for row in lang_rows:
+            formatted.append(
+                {
+                    "language": row["language"],
+                    "mean_score": float(row["mean_score"]),
+                    "n_scores": int(row["n_scores"]),
+                    "n_tasks": int(row["n_tasks"]),
+                }
+            )
+        if formatted:
+            means = [float(r["mean_score"]) for r in formatted]
+            formatted.append(
+                {
+                    "language": "AVERAGE",
+                    "mean_score": sum(means) / len(means),
+                    "n_scores": sum(int(r["n_scores"]) for r in formatted),
+                    "n_tasks": "",
+                }
+            )
+        _write_sheet_rows(ws_lang, lang_fieldnames, formatted)
+
+    # Detail
+    detail_entries = iter_subset_score_entries(results)
+    if detail_entries:
+        ws_detail = wb.create_sheet(title="Detail")
+        detail_fields = ["task", "split", "hf_subset", "language", "score"]
+        detail_rows = [
+            {
+                "task": e["task"],
+                "split": e["split"],
+                "hf_subset": e["hf_subset"],
+                "language": e["language"],
+                "score": float(e["score"]),
+            }
+            for e in detail_entries
+        ]
+        _write_sheet_rows(ws_detail, detail_fields, detail_rows)
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(path)
+    logger.info("Wrote results workbook to %s", path)
+    return path
+
+
 def print_summary(
     results: Any,
     timings: dict[str, float],
@@ -325,7 +470,12 @@ def _load_shard_run(shard_dir: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         raise FileNotFoundError(f"Missing shard summary: {summary_path}")
     with summary_path.open(encoding="utf-8") as f:
         summary = json.load(f)
-    meta: dict[str, Any] = {"timings": {}, "failures": {}, "task_prompts": {}}
+    meta: dict[str, Any] = {
+        "timings": {},
+        "failures": {},
+        "task_prompts": {},
+        "task_types_by_name": {},
+    }
     if meta_path.exists():
         with meta_path.open(encoding="utf-8") as f:
             meta = json.load(f)
@@ -358,6 +508,7 @@ def merge_shard_results(shard_dirs: list[Path], output_dir: Path) -> EvalRunResu
     timings: dict[str, float] = {}
     failures: dict[str, str] = {}
     task_prompts: dict[str, dict[str, str]] = {}
+    task_types_by_name: dict[str, str] = {}
     model_name = ""
     shard_exit_codes: list[int] = []
 
@@ -377,6 +528,7 @@ def merge_shard_results(shard_dirs: list[Path], output_dir: Path) -> EvalRunResu
         timings.update(meta.get("timings", {}))
         failures.update(meta.get("failures", {}))
         task_prompts.update(meta.get("task_prompts", {}))
+        task_types_by_name.update(meta.get("task_types_by_name", {}))
 
         _copy_result_cache_files(shard_dir, output_dir)
 
@@ -398,6 +550,7 @@ def merge_shard_results(shard_dirs: list[Path], output_dir: Path) -> EvalRunResu
                 "timings": timings,
                 "failures": failures,
                 "task_prompts": task_prompts,
+                "task_types_by_name": task_types_by_name,
             },
             f,
             indent=2,
@@ -409,6 +562,7 @@ def merge_shard_results(shard_dirs: list[Path], output_dir: Path) -> EvalRunResu
         timings=timings,
         failures=failures,
         task_prompts=task_prompts,
+        task_types_by_name=task_types_by_name,
         exit_code=exit_code,
         model_name=model_name,
     )

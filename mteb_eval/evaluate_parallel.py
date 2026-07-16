@@ -20,9 +20,10 @@ from mteb_eval.summary import (
     print_language_summary,
     print_summary,
     write_language_outputs,
+    write_results_workbook,
     write_summary_csv,
 )
-from mteb_eval.tasks import partition_task_names, resolve_tasks, task_names_from_args
+from mteb_eval.tasks import partition_task_names, resolve_tasks, task_selection_from_args
 
 logger = logging.getLogger(__name__)
 
@@ -104,15 +105,16 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("Using %d GPU(s): %s", len(gpu_ids), ", ".join(gpu_ids))
 
     languages = languages_from_args(args)
-    names, from_preset = task_names_from_args(args)
+    types, names, from_preset = task_selection_from_args(args)
     all_tasks = resolve_tasks(
         benchmark=args.benchmark,
-        task_types=args.task_types,
+        task_types=types,
         task_names=names,
         languages=languages,
         exclusive_language_filter=args.exclusive_language_filter,
         allow_missing_task_names=from_preset,
     )
+    task_types_by_name = {t.metadata.name: t.metadata.type for t in all_tasks}
     task_names = [t.metadata.name for t in all_tasks]
     if not task_names:
         raise ValueError("No tasks to evaluate after resolution.")
@@ -170,6 +172,16 @@ def main(argv: list[str] | None = None) -> int:
     write_summary_csv(csv_path, summary_rows, include_average=True)
     logger.info("Wrote merged summary CSV to %s", csv_path)
     write_language_outputs(output_dir, merged.model_result)
+    # Prefer coordinator-resolved types; fall back to merged shard meta.
+    types_map = task_types_by_name or merged.task_types_by_name
+    xlsx_path = output_dir / "results.xlsx"
+    write_results_workbook(
+        xlsx_path,
+        summary_rows,
+        merged.model_result,
+        task_types_by_name=types_map,
+    )
+    logger.info("Wrote results workbook to %s", xlsx_path)
 
     print_summary(
         merged.model_result,

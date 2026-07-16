@@ -58,9 +58,30 @@ RETRIEVAL_FAST_OMITTED: tuple[str, ...] = (
     "CovidRetrieval",
 )
 
+WEBLINX_RERANKING = "WebLINXCandidatesReranking"
+
+# Full suite: STS + Classification + Clustering + Reranking (no WebLINX) + retrieval-fast.
+MTEB_EVAL_ALL_TYPES: tuple[str, ...] = (
+    "STS",
+    "Classification",
+    "Clustering",
+    "Reranking",
+    "Retrieval",
+)
+
+# Name-only presets (task_types still come from CLI unless listed in PRESET_TASK_TYPES).
 TASK_PRESETS: dict[str, tuple[str, ...]] = {
     "retrieval-fast": RETRIEVAL_FAST_TASKS,
 }
+
+# Presets that own both task_types and name filtering.
+PRESET_TASK_TYPES: dict[str, tuple[str, ...]] = {
+    "mteb-eval-all": MTEB_EVAL_ALL_TYPES,
+}
+
+ALL_TASK_PRESET_NAMES: tuple[str, ...] = tuple(
+    sorted({*TASK_PRESETS, *PRESET_TASK_TYPES})
+)
 
 
 def manifests_dir() -> Path:
@@ -101,10 +122,34 @@ def is_clf_clust_rerank_types(task_types: Iterable[str]) -> bool:
     return requested == expected
 
 
+def _mteb_eval_all_keeps(task: "AbsTask") -> bool:
+    """Membership filter for the mteb-eval-all preset."""
+    name = task.metadata.name
+    task_type = task.metadata.type
+    if task_type in {"STS", "Classification", "Clustering", "HierarchicalClustering"}:
+        return True
+    if task_type == "Reranking":
+        return name != WEBLINX_RERANKING
+    if task_type == "Retrieval":
+        return name in RETRIEVAL_FAST_TASKS
+    return False
+
+
+def list_mteb_eval_all_task_names(benchmark: str) -> list[str]:
+    """Return sorted task names for mteb-eval-all on the given benchmark."""
+    import mteb
+
+    bench = mteb.get_benchmark(benchmark)
+    types = expand_task_types(MTEB_EVAL_ALL_TYPES)
+    tasks = list(mteb.filter_tasks(bench, task_types=types))
+    return sorted(t.metadata.name for t in tasks if _mteb_eval_all_keeps(t))
+
+
 def resolve_task_names(
     *,
     tasks: Sequence[str] | None = None,
     tasks_preset: str | None = None,
+    benchmark: str | None = None,
 ) -> tuple[list[str] | None, bool]:
     """Resolve explicit task names or a named preset.
 
@@ -114,10 +159,16 @@ def resolve_task_names(
     if tasks is not None and tasks_preset is not None:
         raise ValueError("Use either --tasks or --tasks-preset, not both.")
     if tasks_preset is not None:
+        if tasks_preset == "mteb-eval-all":
+            if not benchmark:
+                raise ValueError(
+                    "tasks_preset='mteb-eval-all' requires a benchmark name"
+                )
+            return list_mteb_eval_all_task_names(benchmark), True
         try:
             return list(TASK_PRESETS[tasks_preset]), True
         except KeyError as exc:
-            known = ", ".join(sorted(TASK_PRESETS))
+            known = ", ".join(ALL_TASK_PRESET_NAMES)
             raise ValueError(
                 f"Unknown tasks preset {tasks_preset!r}. Known presets: {known}"
             ) from exc
@@ -126,9 +177,52 @@ def resolve_task_names(
     return None, False
 
 
+def resolve_task_selection(
+    *,
+    benchmark: str,
+    task_types: Sequence[str] | None,
+    tasks: Sequence[str] | None = None,
+    tasks_preset: str | None = None,
+) -> tuple[list[str], list[str] | None, bool]:
+    """Resolve effective task_types + optional task names for a CLI invocation.
+
+    For ``mteb-eval-all``, task_types are owned by the preset (override CLI defaults).
+    """
+    if tasks is not None and tasks_preset is not None:
+        raise ValueError("Use either --tasks or --tasks-preset, not both.")
+
+    if tasks_preset is not None and tasks_preset in PRESET_TASK_TYPES:
+        names, _ = resolve_task_names(
+            tasks_preset=tasks_preset,
+            benchmark=benchmark,
+        )
+        return list(PRESET_TASK_TYPES[tasks_preset]), names, True
+
+    names, from_preset = resolve_task_names(
+        tasks=tasks,
+        tasks_preset=tasks_preset,
+        benchmark=benchmark,
+    )
+    types = list(task_types) if task_types is not None else list(DEFAULT_TASK_TYPES)
+    return types, names, from_preset
+
+
 def task_names_from_args(args: object) -> tuple[list[str] | None, bool]:
     """Read resolved task names from parsed CLI args."""
     return resolve_task_names(
+        tasks=getattr(args, "tasks", None),
+        tasks_preset=getattr(args, "tasks_preset", None),
+        benchmark=getattr(args, "benchmark", None),
+    )
+
+
+def task_selection_from_args(
+    args: object,
+) -> tuple[list[str], list[str] | None, bool]:
+    """Resolve (task_types, task_names, from_preset) from CLI args."""
+    return resolve_task_selection(
+        benchmark=getattr(args, "benchmark", "MTEB(Multilingual, v2)"),
+        task_types=getattr(args, "task_types", None),
         tasks=getattr(args, "tasks", None),
         tasks_preset=getattr(args, "tasks_preset", None),
     )
@@ -148,11 +242,12 @@ def add_task_arguments(parser: object) -> None:
     )
     task_group.add_argument(
         "--tasks-preset",
-        choices=sorted(TASK_PRESETS),
+        choices=list(ALL_TASK_PRESET_NAMES),
         default=None,
         help=(
             "Named task preset. retrieval-fast = 12 quick multilingual Retrieval "
-            "tasks (skips Belebele/MIRACL/Wikipedia/MLQA/TwitterHjerne/Covid)."
+            "tasks. mteb-eval-all = STS + Classification + Clustering + Reranking "
+            "(without WebLINX) + retrieval-fast (overrides --task-types)."
         ),
     )
 

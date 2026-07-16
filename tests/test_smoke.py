@@ -37,13 +37,16 @@ from mteb_eval.tasks import (
     ML16_CLF_CLUST_RERANK_MANIFEST,
     RETRIEVAL_FAST_OMITTED,
     RETRIEVAL_FAST_TASKS,
+    WEBLINX_RERANKING,
     expand_task_types,
     expected_task_names,
     filter_tasks_by_languages,
     is_clf_clust_rerank_types,
+    list_mteb_eval_all_task_names,
     load_manifest,
     partition_task_names,
     resolve_task_names,
+    resolve_task_selection,
     resolve_tasks,
     validate_against_manifest,
 )
@@ -821,3 +824,95 @@ def test_prefetch_auto_validates_clf_clust_rerank_ml16():
         )
         is None
     )
+
+
+def test_mteb_eval_all_preset_membership():
+    names = list_mteb_eval_all_task_names("MTEB(Multilingual, v2)")
+    assert WEBLINX_RERANKING not in names
+    assert "ArguAna" in names
+    assert "BelebeleRetrieval" not in names
+    assert any("STS" in n or n.startswith("STS") or n.endswith("STS") or "STS" == n for n in names) or any(
+        n in names for n in ("STS12", "STS13", "STS14", "STS15", "STS17", "STS22.v2", "STSBenchmark", "SICK-R")
+    )
+    assert "MassiveIntentClassification" in names
+    assert "StackExchangeClustering.v2" in names
+    assert "AlloprofReranking" in names
+
+    types, sel_names, from_preset = resolve_task_selection(
+        benchmark="MTEB(Multilingual, v2)",
+        task_types=["STS", "Retrieval"],
+        tasks_preset="mteb-eval-all",
+    )
+    assert from_preset is True
+    assert set(types) == {
+        "STS",
+        "Classification",
+        "Clustering",
+        "Reranking",
+        "Retrieval",
+    }
+    assert sel_names is not None
+    assert set(sel_names) == set(names)
+
+
+def test_mteb_eval_all_ml16_counts():
+    types, names, _ = resolve_task_selection(
+        benchmark="MTEB(Multilingual, v2)",
+        task_types=None,
+        tasks_preset="mteb-eval-all",
+    )
+    tasks = resolve_tasks(
+        benchmark="MTEB(Multilingual, v2)",
+        task_types=types,
+        task_names=names,
+        languages=list(ML16_LANGUAGES),
+        allow_missing_task_names=True,
+    )
+    by_type: dict[str, int] = {}
+    for task in tasks:
+        by_type[task.metadata.type] = by_type.get(task.metadata.type, 0) + 1
+    assert WEBLINX_RERANKING not in {t.metadata.name for t in tasks}
+    assert by_type.get("Classification") == 21
+    assert by_type.get("Clustering") == 12
+    assert by_type.get("Reranking") == 4
+    assert by_type.get("Retrieval") == 12
+    assert by_type.get("STS") == 13
+    assert len(tasks) == 62
+    assert {t.metadata.name for t in tasks if t.metadata.type == "Retrieval"} <= set(
+        RETRIEVAL_FAST_TASKS
+    )
+
+
+def test_write_results_workbook_sheets(tmp_path):
+    from mteb_eval.summary import write_results_workbook
+    from openpyxl import load_workbook
+
+    results = ModelResult(
+        model_name="test-model",
+        model_revision=None,
+        task_results=[
+            _sample_task_result("STS12"),
+            _sample_task_result("FinancialPhrasebankClassification"),
+        ],
+    )
+    summary_rows = build_summary_rows(
+        results,
+        {"STS12": 1.0, "FinancialPhrasebankClassification": 2.0},
+    )
+    path = tmp_path / "results.xlsx"
+    write_results_workbook(
+        path,
+        summary_rows,
+        results,
+        task_types_by_name={
+            "STS12": "STS",
+            "FinancialPhrasebankClassification": "Classification",
+        },
+    )
+    wb = load_workbook(path)
+    assert "Summary" in wb.sheetnames
+    assert "STS" in wb.sheetnames
+    assert "Classification" in wb.sheetnames
+    assert "ByLanguage" in wb.sheetnames
+    assert "Detail" in wb.sheetnames
+    assert "Reranking" not in wb.sheetnames  # empty type omitted

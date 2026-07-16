@@ -22,7 +22,7 @@ from mteb_eval.tasks import (
     dataset_info,
     is_clf_clust_rerank_types,
     resolve_tasks,
-    task_names_from_args,
+    task_selection_from_args,
     validate_against_manifest,
 )
 
@@ -178,25 +178,40 @@ def main(argv: list[str] | None = None) -> int:
     )
     apply_mteb_offline_compat()
 
-    names, from_preset = task_names_from_args(args)
+    types, names, from_preset = task_selection_from_args(args)
     languages = languages_from_args(args)
+    if names and from_preset:
+        logger.info(
+            "Using tasks preset %r (%d names); task_types=%s",
+            getattr(args, "tasks_preset", None),
+            len(names),
+            types,
+        )
     tasks = resolve_tasks(
         benchmark=args.benchmark,
-        task_types=args.task_types,
+        task_types=types,
         task_names=names,
         languages=languages,
         exclusive_language_filter=args.exclusive_language_filter,
         allow_missing_task_names=from_preset,
     )
 
-    manifest_name = _resolve_manifest_validation(
-        should_validate=args.validate_manifest,
-        benchmark=args.benchmark,
-        task_types=args.task_types,
-        names=names,
-        languages=languages,
-        languages_preset=getattr(args, "languages_preset", DEFAULT_LANGUAGES_PRESET),
-    )
+    if getattr(args, "tasks_preset", None) == "mteb-eval-all":
+        if args.validate_manifest is True:
+            logger.warning(
+                "Skipping manifest validation for tasks-preset mteb-eval-all "
+                "(no shipped inventory for this suite yet)."
+            )
+        manifest_name = None
+    else:
+        manifest_name = _resolve_manifest_validation(
+            should_validate=args.validate_manifest,
+            benchmark=args.benchmark,
+            task_types=types,
+            names=names,
+            languages=languages,
+            languages_preset=getattr(args, "languages_preset", DEFAULT_LANGUAGES_PRESET),
+        )
     if manifest_name is not None:
         validate_against_manifest(tasks, manifest_name=manifest_name)
         logger.info("Validated against manifest %s", manifest_name)

@@ -185,7 +185,7 @@ Manifest: [`mteb_eval/manifests/eng_v2_sts_retrieval.json`](mteb_eval/manifests/
 --benchmark                Default: MTEB(Multilingual, v2)
 --task-types               Default: STS Retrieval (also: Classification Clustering Reranking)
 --tasks                    Optional explicit task subset
---tasks-preset             retrieval-fast = 12 quick multilingual Retrieval tasks
+--tasks-preset             retrieval-fast | mteb-eval-all
 --languages                Language-script codes (overrides preset)
 --languages-preset         Default: ml16 (use none for all languages)
 --exclusive-language-filter  Keep only subsets where ALL languages match (default: ANY match)
@@ -248,6 +248,34 @@ python -m mteb_eval.evaluate \
 Under ml16 this resolves to **38 tasks** (21 Classification, 12 Clustering, 5 Reranking). Tasks with no overlapping language subsets are skipped automatically. Requesting `Clustering` also expands to `HierarchicalClustering` when that type exists in the MTEB version.
 
 Bi-encoder embedding models work for Reranking the same way as Retrieval (encode + similarity). Wall time on 1× H100 for a ~200M model is typically ~1–1.5 hours; **WebLINXCandidatesReranking** dominates.
+
+## `mteb-eval-all` preset
+
+`--tasks-preset mteb-eval-all` runs a practical full suite on Multilingual v2 (ml16 still applies by default):
+
+- **All** STS, Classification, Clustering
+- **Reranking** without `WebLINXCandidatesReranking`
+- **Retrieval** = `retrieval-fast` only (12 tasks)
+
+This preset **overrides** `--task-types`. Under ml16 it typically resolves to ~62 tasks.
+
+```bash
+python -m mteb_eval.prefetch \
+  --cache-dir /data/hf_cache \
+  --tasks-preset mteb-eval-all
+
+python -m mteb_eval.evaluate \
+  --cache-dir /data/hf_cache --offline \
+  --tasks-preset mteb-eval-all \
+  --model Qwen/Qwen3-Embedding-4B \
+  --output-dir results/qwen3-mteb-eval-all \
+  --device cuda
+```
+
+On completion, results are written to:
+
+- `summary.csv` / language CSVs (unchanged)
+- **`results.xlsx`** with sheets: `Summary`, per-type (`STS`, `Classification`, `Clustering`, `Reranking`, `Retrieval`), `ByLanguage`, `Detail`
 
 ## Fast Retrieval preset
 

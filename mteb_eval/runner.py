@@ -21,7 +21,7 @@ from mteb_eval.model_loader import (
 )
 from mteb_eval.offline_compat import apply_mteb_offline_compat
 from mteb_eval.prompts import configure_prompt_prefixes, print_task_prompts, resolve_task_prompts
-from mteb_eval.tasks import resolve_tasks, task_names_from_args
+from mteb_eval.tasks import resolve_tasks, task_selection_from_args
 
 if TYPE_CHECKING:
     from mteb.abstasks import AbsTask
@@ -40,6 +40,7 @@ class EvalRunResult:
     timings: dict[str, float] = field(default_factory=dict)
     failures: dict[str, str] = field(default_factory=dict)
     task_prompts: dict[str, dict[str, str]] = field(default_factory=dict)
+    task_types_by_name: dict[str, str] = field(default_factory=dict)
     exit_code: int = 0
     model_name: str = ""
 
@@ -81,6 +82,7 @@ def write_run_meta(
     timings: dict[str, float],
     failures: dict[str, str],
     task_prompts: dict[str, dict[str, str]],
+    task_types_by_name: dict[str, str] | None = None,
     exit_code: int = 0,
 ) -> None:
     """Persist per-run metadata alongside summary.json for shard merging."""
@@ -91,6 +93,7 @@ def write_run_meta(
                 "timings": timings,
                 "failures": failures,
                 "task_prompts": task_prompts,
+                "task_types_by_name": task_types_by_name or {},
                 "exit_code": exit_code,
             },
             f,
@@ -157,19 +160,26 @@ def run_evaluation(
     if task_names is not None:
         names = task_names
         from_preset = False
+        types = list(args.task_types)
     else:
-        names, from_preset = task_names_from_args(args)
+        types, names, from_preset = task_selection_from_args(args)
     if names and from_preset:
-        logger.info("Using tasks preset with %d name(s)", len(names))
+        logger.info(
+            "Using tasks preset %r with %d name(s); task_types=%s",
+            getattr(args, "tasks_preset", None),
+            len(names),
+            types,
+        )
 
     tasks: list[AbsTask] = resolve_tasks(
         benchmark=args.benchmark,
-        task_types=args.task_types,
+        task_types=types,
         task_names=names,
         languages=languages,
         exclusive_language_filter=args.exclusive_language_filter,
         allow_missing_task_names=from_preset,
     )
+    task_types_by_name = {t.metadata.name: t.metadata.type for t in tasks}
     n_subsets = sum(len(t.hf_subsets) if t.hf_subsets else 1 for t in tasks)
     logger.info(
         "Evaluating %d task(s) across %d language subset(s)...",
@@ -240,6 +250,7 @@ def run_evaluation(
         timings=timings,
         failures=failures,
         task_prompts=task_prompts,
+        task_types_by_name=task_types_by_name,
         exit_code=1 if failures else 0,
     )
 
@@ -248,6 +259,7 @@ def run_evaluation(
         timings=timings,
         failures=failures,
         task_prompts=task_prompts,
+        task_types_by_name=task_types_by_name,
         exit_code=1 if failures else 0,
         model_name=model_name,
     )
