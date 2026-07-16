@@ -2,7 +2,7 @@
 
 Prefetch and evaluate embedding models on **MTEB(Multilingual, v2)** (default), filtered to the **ml16** language preset. Default task types are STS + Retrieval; Classification, Clustering, and Reranking are fully supported via `--task-types`. Also supports the older eng STS+Retrieval 19-task set via `--benchmark "MTEB(eng, v2)" --languages-preset none`.
 
-Pinned dependencies in [`requirements.txt`](requirements.txt) keep scores reproducible across machines.
+Minimum versions are listed in [`requirements.txt`](requirements.txt). Pin exact versions in your environment if you need bit-identical scores across machines.
 
 ## Quick start
 
@@ -35,7 +35,7 @@ pip freeze > requirements-lock.txt
 ### Step 2 — GPU machine (evaluate, Hub model)
 
 ```bash
-pip install -r requirements.txt   # same versions as prefetch machine
+pip install -r requirements.txt   # same mins as prefetch; pin exact versions for reproducibility
 
 python -m mteb_eval.evaluate \
   --cache-dir /data/hf_cache \
@@ -320,7 +320,7 @@ Shell wrapper: [`scripts/evaluate_parallel.sh`](scripts/evaluate_parallel.sh).
 
 ## Troubleshooting
 
-- **Score mismatch across machines:** Use identical `mteb`, `sentence-transformers`, and `transformers` versions from `requirements.txt`.
+- **Score mismatch across machines:** Pin identical `mteb`, `sentence-transformers`, and `transformers` versions (mins are in `requirements.txt`).
 - **Dataset not found offline:** Run `prefetch` on the internet machine first; verify `rsync` completed.
 - **Wrong FEVER/Hotpot size (~3 GB):** The toolkit uses v2 hard-negative repos (`FEVERHardNegatives`, `HotpotQAHardNegatives`), not full `mteb/fever`.
 - **Local folder load fails:** Folder must contain ST artifacts (`modules.json`, `config_sentence_transformers.json`) or transformers weights (`config.json` + `*.safetensors`).
