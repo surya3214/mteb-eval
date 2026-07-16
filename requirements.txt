@@ -1,14 +1,14 @@
-# Pinned for reproducible MTEB scores across machines.
-# Install torch separately for your CUDA version (see requirements-gpu.txt).
+# Minimum versions for MTEB eval (install torch separately; see requirements-gpu.txt).
+# Prefer locking exact versions in your environment if you need bit-identical scores.
 
-mteb==2.18.0
-sentence-transformers==5.6.0
-transformers==4.57.6
-datasets==3.6.0
-huggingface_hub==0.34.4
-accelerate==1.6.0
-einops==0.8.1
-openpyxl==3.1.5
+mteb>=2.18.0
+sentence-transformers>=5.6.0
+transformers>=5.5.0
+datasets>=3.6.0
+huggingface_hub>=0.34.4
+accelerate>=1.6.0
+einops>=0.8.1
+openpyxl>=3.1.5
 
 # Optional faster HF downloads on prefetch machine:
 # pip install "mteb[xet]"
