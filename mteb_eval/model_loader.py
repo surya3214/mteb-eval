@@ -173,6 +173,58 @@ def infer_qwen3_hub_id(source: ModelSource) -> str | None:
     return source.hub_id
 
 
+def ensure_mteb_model_meta(
+    model: Any,
+    *,
+    hub_id: str | None = None,
+    fallback_name: str | None = None,
+) -> Any:
+    """Attach ModelMeta when missing so MTEB ResultCache can write task results.
+
+    ``mteb.evaluate``'s ``_evaluate_task`` reads ``model.mteb_model_meta`` directly
+    and does ``results_folder / model_name``. If meta is ``None``, that becomes
+    ``Path / None`` and every task fails with::
+
+        unsupported operand type(s) for /: 'PosixPath' and 'NoneType'
+    """
+    existing = getattr(model, "mteb_model_meta", None)
+    if existing is not None:
+        name = getattr(existing, "name", None)
+        revision = getattr(existing, "revision", None)
+        if name and revision:
+            return model
+
+    import mteb
+    from mteb.models.model_meta import ModelMeta
+
+    meta = mteb.get_model_meta(hub_id) if hub_id else None
+    if meta is not None:
+        model.mteb_model_meta = meta.model_copy(deep=True)
+        logger.info(
+            "Attached MTEB ModelMeta for %s (revision=%s)",
+            meta.name,
+            meta.revision,
+        )
+        return model
+
+    empty = ModelMeta.create_empty()
+    name = hub_id or fallback_name or empty.name
+    model.mteb_model_meta = empty.model_copy(
+        update={
+            "name": name,
+            "revision": empty.revision or "no_revision_available",
+        }
+    )
+    logger.warning(
+        "No MTEB registry entry for %r; attached fallback ModelMeta "
+        "(name=%s, revision=%s). Pass --hub-id for leaderboard-comparable metadata.",
+        hub_id or fallback_name,
+        model.mteb_model_meta.name,
+        model.mteb_model_meta.revision,
+    )
+    return model
+
+
 def resolve_torch_dtype(dtype: str) -> Any | None:
     """Map a CLI dtype string to a torch.dtype, or None for library default."""
     if dtype == "auto":
@@ -233,15 +285,24 @@ def load_qwen3_local(
 
         meta = mteb.get_model_meta(resolved_hub)
         if meta is not None:
+            revision = meta.revision or "no_revision_available"
             logger.info(
-                "Loading local Qwen3 via MTEB instruct loader (hub ref: %s)",
+                "Loading local Qwen3 via MTEB instruct loader (hub ref: %s, revision: %s)",
                 resolved_hub,
+                revision,
             )
-            return q3e_instruct_loader(
+            model = q3e_instruct_loader(
                 source.path,
-                revision=None,
+                revision=revision,
                 device=device,
                 **st_kwargs,
+            )
+            # Required: mteb.evaluate saves via model.mteb_model_meta; without it
+            # ResultCache does Path / None and every task fails.
+            return ensure_mteb_model_meta(
+                model,
+                hub_id=resolved_hub,
+                fallback_name=resolved_hub,
             )
 
     logger.warning(
@@ -250,12 +311,17 @@ def load_qwen3_local(
     )
     from sentence_transformers import SentenceTransformer
 
-    return SentenceTransformer(
+    model = SentenceTransformer(
         source.path,
         device=device,
         trust_remote_code=True,
         tokenizer_kwargs={"padding_side": "left"},
         **st_kwargs,
+    )
+    return ensure_mteb_model_meta(
+        model,
+        hub_id=resolved_hub,
+        fallback_name=source.hub_id or source.path,
     )
 
 
@@ -361,11 +427,16 @@ def load_embedding_model(
             logger.info("Loading Hub model via MTEB registry: %s", source.path)
             return meta.load_model(device=device, **st_kwargs)
         logger.info("Loading Hub model via SentenceTransformer: %s", source.path)
-        return SentenceTransformer(
+        model = SentenceTransformer(
             source.path,
             device=device,
             trust_remote_code=True,
             **st_kwargs,
+        )
+        return ensure_mteb_model_meta(
+            model,
+            hub_id=source.path,
+            fallback_name=source.path,
         )
 
     if resolved_type == "qwen3":
@@ -378,10 +449,15 @@ def load_embedding_model(
 
     if resolved_type == "eurobert-base":
         logger.info("Loading local EuroBERT base encoder: %s", source.path)
-        return EuroBertEncoderWrapper.from_pretrained(
+        model = EuroBertEncoderWrapper.from_pretrained(
             source.path,
             device=device,
             **hf_kwargs,
+        )
+        return ensure_mteb_model_meta(
+            model,
+            hub_id=source.hub_id,
+            fallback_name=source.hub_id or source.path,
         )
 
     logger.info(
@@ -389,11 +465,16 @@ def load_embedding_model(
         resolved_type,
         source.path,
     )
-    return SentenceTransformer(
+    model = SentenceTransformer(
         source.path,
         device=device,
         trust_remote_code=True,
         **st_kwargs,
+    )
+    return ensure_mteb_model_meta(
+        model,
+        hub_id=source.hub_id,
+        fallback_name=source.hub_id or source.path,
     )
 
 

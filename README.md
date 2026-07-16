@@ -332,6 +332,7 @@ Shell wrapper: [`scripts/evaluate_parallel.sh`](scripts/evaluate_parallel.sh).
 - **Wrong FEVER/Hotpot size (~3 GB):** The toolkit uses v2 hard-negative repos (`FEVERHardNegatives`, `HotpotQAHardNegatives`), not full `mteb/fever`.
 - **Local folder load fails:** Folder must contain ST artifacts (`modules.json`, `config_sentence_transformers.json`) or transformers weights (`config.json` + `*.safetensors`).
 - **Qwen3 local scores differ:** Pass `--hub-id` so the MTEB instruct wrapper is applied.
+- **`PosixPath / NoneType` on every task (Qwen3 local):** Local Qwen3 loads must attach MTEB `ModelMeta` before `evaluate` writes results. Pull the latest toolkit; use `--hub-id Qwen/Qwen3-Embedding-0.6B` (or 4B/8B) with `--model-path`.
 - **Hub id passed to `--model-path`:** Use `--model <repo_id>` instead; `--model-path` must be an existing directory.
 - **One task fails mid-run:** By default `--continue-on-error` is on so remaining tasks finish; failed tasks appear as `FAILED` in the summary and the process exits with code 1. Use `--no-continue-on-error` to stop on the first error.
 - **Offline Retrieval `Couldn't find cache for config 'default'`:** Some Hub datasets store qrels under config `qrels` (not `default`). Prefer prefetching with `python -m mteb_eval.prefetch` so all of `corpus` / `queries` / `qrels` (or `default`) land in the cache, and use this toolkit's evaluate entrypoints (they apply an offline qrels compatibility shim). Ensure `rsync` copies both `hub/` and `datasets/` under `--cache-dir`.

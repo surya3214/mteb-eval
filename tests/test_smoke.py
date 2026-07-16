@@ -473,6 +473,59 @@ def test_resolve_torch_dtype_auto_is_none():
     assert resolve_torch_dtype("auto") is None
 
 
+def test_ensure_mteb_model_meta_attaches_qwen3_registry_entry():
+    from mteb_eval.model_loader import ensure_mteb_model_meta
+
+    model = SimpleNamespace(mteb_model_meta=None)
+    ensure_mteb_model_meta(model, hub_id="Qwen/Qwen3-Embedding-0.6B")
+    assert model.mteb_model_meta is not None
+    assert model.mteb_model_meta.name == "Qwen/Qwen3-Embedding-0.6B"
+    assert model.mteb_model_meta.revision
+    assert model.mteb_model_meta.revision != "no_revision_available"
+
+
+def test_ensure_mteb_model_meta_skips_when_complete():
+    from mteb_eval.model_loader import ensure_mteb_model_meta
+
+    existing = SimpleNamespace(name="already/set", revision="abc123")
+    model = SimpleNamespace(mteb_model_meta=existing)
+    ensure_mteb_model_meta(model, hub_id="Qwen/Qwen3-Embedding-0.6B")
+    assert model.mteb_model_meta is existing
+
+
+def test_load_qwen3_local_attaches_model_meta():
+    """Regression: missing mteb_model_meta made every task fail with Path / None."""
+    from mteb_eval.model_loader import ModelSource, load_qwen3_local
+
+    source = ModelSource(
+        path="/tmp/fake-qwen3",
+        is_local=True,
+        hub_id="Qwen/Qwen3-Embedding-0.6B",
+    )
+    fake_model = SimpleNamespace(mteb_model_meta=None)
+
+    with patch(
+        "mteb.models.model_implementations.qwen3_models.q3e_instruct_loader",
+        return_value=fake_model,
+    ) as mock_loader:
+        model = load_qwen3_local(
+            source,
+            device="cpu",
+            hub_id="Qwen/Qwen3-Embedding-0.6B",
+            model_kwargs={},
+        )
+
+    assert model is fake_model
+    assert model.mteb_model_meta is not None
+    assert model.mteb_model_meta.name == "Qwen/Qwen3-Embedding-0.6B"
+    assert model.mteb_model_meta.revision
+    args, kwargs = mock_loader.call_args
+    assert args[0] == "/tmp/fake-qwen3"
+    revision_arg = kwargs.get("revision")
+    assert revision_arg is not None
+    assert isinstance(revision_arg, str)
+
+
 def test_load_embedding_model_passes_nested_model_kwargs():
     from mteb_eval.model_loader import ModelSource, load_embedding_model
 
