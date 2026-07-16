@@ -19,6 +19,7 @@ from mteb_eval.summary import (
     print_language_summary,
     print_summary,
     write_language_outputs,
+    write_results_workbook,
     write_summary_csv,
 )
 from mteb_eval.tasks import add_task_arguments
@@ -162,6 +163,14 @@ def main(argv: list[str] | None = None) -> int:
     write_summary_csv(csv_path, summary_rows, include_average=True)
     logging.getLogger(__name__).info("Wrote summary CSV to %s", csv_path)
     write_language_outputs(output_dir, result.model_result)
+    xlsx_path = output_dir / "results.xlsx"
+    write_results_workbook(
+        xlsx_path,
+        summary_rows,
+        result.model_result,
+        task_types_by_name=result.task_types_by_name,
+    )
+    logging.getLogger(__name__).info("Wrote results workbook to %s", xlsx_path)
 
     print_summary(
         result.model_result,
