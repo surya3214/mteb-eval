@@ -16,6 +16,7 @@ from mteb_eval.languages import languages_from_args
 from mteb_eval.model_loader import (
     DEFAULT_MAX_SEQ_LEN,
     configure_max_seq_len,
+    ensure_mteb_model_meta,
     load_embedding_model,
     resolve_model_source,
 )
@@ -145,6 +146,11 @@ def run_evaluation(
         device=args.device,
         dtype=getattr(args, "dtype", "bfloat16"),
         attn_implementation=getattr(args, "attn_implementation", "sdpa"),
+    )
+    model = ensure_mteb_model_meta(
+        model,
+        hub_id=source.hub_id or (None if source.is_local else source.path),
+        fallback_name=source.hub_id or source.path,
     )
     configure_max_seq_len(model, args.max_seq_len)
     configure_prompt_prefixes(
