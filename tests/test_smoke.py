@@ -883,6 +883,117 @@ def test_mteb_eval_all_ml16_counts():
     )
 
 
+def test_parallel_worker_keeps_preset_task_types():
+    """Regression: evaluate_parallel workers must use coordinator-resolved types.
+
+    With mteb-eval-all, CLI defaults remain STS/Retrieval. If workers keep those
+    defaults, Classification/Clustering names raise before summary.json is written
+    ("Missing shard summary").
+    """
+    from mteb_eval.tasks import DEFAULT_TASK_TYPES, partition_task_names
+
+    types, names, from_preset = resolve_task_selection(
+        benchmark="MTEB(Multilingual, v2)",
+        task_types=list(DEFAULT_TASK_TYPES),
+        tasks_preset="mteb-eval-all",
+    )
+    assert from_preset is True
+    assert set(types) >= {"Classification", "Clustering", "Reranking", "STS", "Retrieval"}
+    assert names is not None
+
+    partition = partition_task_names(names, 8)[0]
+    assert partition
+
+    with pytest.raises(ValueError, match="Unknown task name"):
+        resolve_tasks(
+            benchmark="MTEB(Multilingual, v2)",
+            task_types=list(DEFAULT_TASK_TYPES),
+            task_names=partition,
+            allow_missing_task_names=False,
+        )
+
+    resolved = resolve_tasks(
+        benchmark="MTEB(Multilingual, v2)",
+        task_types=types,
+        task_names=partition,
+        allow_missing_task_names=False,
+    )
+    assert len(resolved) == len(partition)
+    assert {t.metadata.name for t in resolved} == set(partition)
+
+
+def test_parallel_worker_passes_task_types_to_run_evaluation(tmp_path: Path):
+    from mteb_eval.evaluate_parallel import _worker
+    from mteb_eval.runner import EvalRunResult
+
+    captured: dict = {}
+
+    def fake_run(args, *, task_names=None, task_types=None, output_dir=None):
+        captured["args_task_types"] = list(args.task_types)
+        captured["task_types"] = list(task_types) if task_types is not None else None
+        captured["task_names"] = list(task_names) if task_names is not None else None
+        (Path(output_dir) / "summary.json").write_text("{}", encoding="utf-8")
+        return EvalRunResult(
+            model_result=ModelResult(
+                model_name="dummy",
+                model_revision=None,
+                task_results=[],
+            ),
+            timings={},
+            failures={},
+            task_prompts={},
+            exit_code=0,
+            model_name="dummy",
+        )
+
+    shard = tmp_path / "gpu0"
+    shard.mkdir()
+    preset_types = [
+        "STS",
+        "Classification",
+        "Clustering",
+        "Reranking",
+        "Retrieval",
+    ]
+    args_dict = {
+        "cache_dir": None,
+        "default_cache": True,
+        "model": "dummy",
+        "model_path": None,
+        "hub_id": None,
+        "model_type": "auto",
+        "offline": False,
+        "benchmark": "MTEB(Multilingual, v2)",
+        "task_types": ["STS", "Retrieval"],  # CLI default left in namespace
+        "tasks": None,
+        "tasks_preset": None,
+        "languages": None,
+        "languages_preset": "ml16",
+        "exclusive_language_filter": False,
+        "output_dir": str(tmp_path / "out"),
+        "device": None,
+        "dtype": "bfloat16",
+        "attn_implementation": "sdpa",
+        "batch_size": 8,
+        "query_batch_size": None,
+        "corpus_batch_size": None,
+        "overwrite": "only-missing",
+        "continue_on_error": True,
+        "max_seq_len": 512,
+        "query_prefix": None,
+        "document_prefix": None,
+        "verbose": False,
+    }
+
+    with patch("mteb_eval.evaluate_parallel.run_evaluation", side_effect=fake_run):
+        code = _worker("0", ["STS12", "MassiveIntentClassification"], args_dict, str(shard), preset_types)
+
+    assert code == 0
+    assert captured["task_types"] == preset_types
+    assert captured["args_task_types"] == preset_types
+    assert captured["task_names"] == ["STS12", "MassiveIntentClassification"]
+
+
 def test_write_results_workbook_sheets(tmp_path):
     from mteb_eval.summary import write_results_workbook
     from openpyxl import load_workbook

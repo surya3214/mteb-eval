@@ -105,9 +105,17 @@ def run_evaluation(
     args: argparse.Namespace,
     *,
     task_names: list[str] | None = None,
+    task_types: list[str] | None = None,
     output_dir: Path | None = None,
 ) -> EvalRunResult:
-    """Run MTEB evaluation for the given args and optional task-name subset."""
+    """Run MTEB evaluation for the given args and optional task-name subset.
+
+    When ``task_names`` is provided (e.g. parallel GPU workers), pass the
+    coordinator-resolved ``task_types`` as well. Presets like ``mteb-eval-all``
+    override CLI ``--task-types`` defaults; workers must not fall back to
+    ``STS``/``Retrieval`` alone or non-matching names fail before writing
+    ``summary.json``.
+    """
     configure_cache(
         cache_dir=args.cache_dir,
         default_cache=args.default_cache,
@@ -160,7 +168,9 @@ def run_evaluation(
     if task_names is not None:
         names = task_names
         from_preset = False
-        types = list(args.task_types)
+        # Prefer explicit override (parallel coordinator), else args.task_types
+        # which evaluate_parallel rewrites to the resolved preset types.
+        types = list(task_types) if task_types is not None else list(args.task_types)
     else:
         types, names, from_preset = task_selection_from_args(args)
     if names and from_preset:

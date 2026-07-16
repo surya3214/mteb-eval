@@ -270,6 +270,13 @@ python -m mteb_eval.evaluate \
   --model Qwen/Qwen3-Embedding-4B \
   --output-dir results/qwen3-mteb-eval-all \
   --device cuda
+
+python -m mteb_eval.evaluate_parallel \
+  --cache-dir /data/hf_cache --offline \
+  --tasks-preset mteb-eval-all \
+  --model Qwen/Qwen3-Embedding-4B \
+  --output-dir results/qwen3-mteb-eval-all-parallel \
+  --gpus auto
 ```
 
 On completion, results are written to:
@@ -332,6 +339,7 @@ Shell wrapper: [`scripts/evaluate_parallel.sh`](scripts/evaluate_parallel.sh).
 - **STS22 OOM on long news articles:** Lower `--batch-size` (4–16 for large models) and/or reduce `--max-seq-len` (default 512). GPU memory is released between tasks via `gc.collect()` and `torch.cuda.empty_cache()`. Try `--dtype bfloat16` on Ampere+ GPUs to free VRAM.
 - **bf16 vs fp32 scores:** `--dtype bfloat16` can produce tiny score deltas vs float32; still a valid MTEB run, but not bit-identical.
 - **FlashAttention-2 failures:** Only use `--attn-implementation flash_attention_2` when FA2/kernels are installed and the model supports it. Prefer the default `sdpa`.
+- **`Missing shard summary` with `evaluate_parallel` + `mteb-eval-all`:** Fixed by propagating preset `task_types` to GPU workers. Pull the latest toolkit; empty `.shards/gpu*/` without `summary.json` usually means a worker crashed during task resolution.
 
 ## Tests
 
