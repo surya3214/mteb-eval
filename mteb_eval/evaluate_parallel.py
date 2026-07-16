@@ -70,6 +70,7 @@ def _worker(
     task_names: list[str],
     args_dict: dict,
     shard_dir: str,
+    task_types: list[str],
 ) -> int:
     """Run evaluation on one GPU for a disjoint task subset."""
     os.environ["CUDA_VISIBLE_DEVICES"] = gpu_id
@@ -77,6 +78,10 @@ def _worker(
     worker_args.device = "cuda"
     worker_args.tasks = task_names
     worker_args.tasks_preset = None
+    # Presets (e.g. mteb-eval-all) override CLI --task-types; keep the
+    # coordinator-resolved types so Classification/Clustering/Reranking names
+    # resolve instead of crashing before summary.json is written.
+    worker_args.task_types = list(task_types)
 
     logging.basicConfig(
         level=logging.DEBUG if worker_args.verbose else logging.INFO,
@@ -86,6 +91,7 @@ def _worker(
     result = run_evaluation(
         worker_args,
         task_names=task_names,
+        task_types=list(task_types),
         output_dir=Path(shard_dir),
     )
     return result.exit_code
@@ -125,6 +131,9 @@ def main(argv: list[str] | None = None) -> int:
     shards_root.mkdir(parents=True, exist_ok=True)
 
     args_dict = _namespace_to_dict(args)
+    # Ensure workers inherit coordinator-resolved types (preset overrides).
+    args_dict["task_types"] = list(types)
+    args_dict["tasks_preset"] = None
     processes: list[mp.Process] = []
     shard_dirs: list[Path] = []
 
@@ -143,7 +152,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         proc = mp.Process(
             target=_worker,
-            args=(gpu_id, names, args_dict, str(shard_dir)),
+            args=(gpu_id, names, args_dict, str(shard_dir), list(types)),
             name=f"mteb-gpu{gpu_id}",
         )
         processes.append(proc)
@@ -159,6 +168,15 @@ def main(argv: list[str] | None = None) -> int:
 
     if not shard_dirs:
         raise RuntimeError("No GPU workers were started (empty task list?).")
+
+    missing = [str(d) for d in shard_dirs if not (d / "summary.json").exists()]
+    if missing:
+        raise RuntimeError(
+            "One or more GPU workers exited without writing summary.json "
+            f"(exit_codes={exit_codes}). Missing: {missing}. "
+            "Check worker logs above; common cause was presets like "
+            "mteb-eval-all not propagating task_types to workers."
+        )
 
     merged = merge_shard_results(shard_dirs, output_dir)
 
