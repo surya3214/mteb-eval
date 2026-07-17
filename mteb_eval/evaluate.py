@@ -125,6 +125,16 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"Maximum input sequence length / truncation limit (default: {DEFAULT_MAX_SEQ_LEN}).",
     )
     parser.add_argument(
+        "--processing-kwargs",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Pass max_seq_len via SentenceTransformer encode processing_kwargs "
+            "(default: on). Use --no-processing-kwargs for models that reject "
+            "extra encode kwargs; max_seq_len still applies via model.max_seq_length."
+        ),
+    )
+    parser.add_argument(
         "--query-prefix",
         type=str,
         default=None,

@@ -63,13 +63,15 @@ def release_task_memory() -> None:
 def build_encode_kwargs(args: argparse.Namespace) -> dict[str, Any]:
     kwargs: dict[str, Any] = {
         "batch_size": args.batch_size,
-        "processing_kwargs": {
+    }
+    # ST 5.x processor path; some models/wrappers reject unknown encode kwargs.
+    if getattr(args, "processing_kwargs", True):
+        kwargs["processing_kwargs"] = {
             "text": {
                 "max_length": args.max_seq_len,
                 "truncation": True,
             }
-        },
-    }
+        }
     if args.query_batch_size is not None:
         kwargs["query_batch_size"] = args.query_batch_size
     if args.corpus_batch_size is not None:

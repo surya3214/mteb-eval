@@ -340,6 +340,61 @@ def test_configure_max_seq_len_sentence_transformer():
     assert st_model.max_seq_length == 512
 
 
+def test_build_encode_kwargs_includes_processing_kwargs_by_default():
+    from mteb_eval.runner import build_encode_kwargs
+
+    args = SimpleNamespace(
+        batch_size=16,
+        max_seq_len=256,
+        query_batch_size=None,
+        corpus_batch_size=None,
+        processing_kwargs=True,
+    )
+    kwargs = build_encode_kwargs(args)
+    assert kwargs["batch_size"] == 16
+    assert kwargs["processing_kwargs"] == {
+        "text": {"max_length": 256, "truncation": True}
+    }
+
+
+def test_build_encode_kwargs_can_disable_processing_kwargs():
+    from mteb_eval.runner import build_encode_kwargs
+
+    args = SimpleNamespace(
+        batch_size=16,
+        max_seq_len=256,
+        query_batch_size=8,
+        corpus_batch_size=2,
+        processing_kwargs=False,
+    )
+    kwargs = build_encode_kwargs(args)
+    assert "processing_kwargs" not in kwargs
+    assert kwargs["batch_size"] == 16
+    assert kwargs["query_batch_size"] == 8
+    assert kwargs["corpus_batch_size"] == 2
+
+
+def test_cli_no_processing_kwargs_flag():
+    from mteb_eval.evaluate import build_parser
+
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "--default-cache",
+            "--model",
+            "org/demo",
+            "--output-dir",
+            "/tmp/out",
+            "--no-processing-kwargs",
+        ]
+    )
+    assert args.processing_kwargs is False
+    args_default = parser.parse_args(
+        ["--default-cache", "--model", "org/demo", "--output-dir", "/tmp/out"]
+    )
+    assert args_default.processing_kwargs is True
+
+
 def test_configure_max_seq_len_eurobert_wrapper():
     from mteb_eval.model_loader import EuroBertEncoderWrapper
 
