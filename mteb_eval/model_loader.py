@@ -63,8 +63,10 @@ def resolve_model_source(
         if expanded.is_dir():
             p = expanded.resolve()
             validate_local_checkpoint(p)
-            return ModelSource(path=str(p), is_local=True, hub_id=hub_id or model)
-        return ModelSource(path=model, is_local=False, hub_id=model)
+            # Do not set hub_id to the filesystem path — mteb.get_model_meta raises
+            # KeyError("Model '<path>' not found in MTEB registry") for local paths.
+            return ModelSource(path=str(p), is_local=True, hub_id=hub_id)
+        return ModelSource(path=model, is_local=False, hub_id=hub_id or model)
 
     raise ValueError("Provide --model <hub_id> or --model-path <local_dir>.")
 
@@ -173,6 +175,40 @@ def infer_qwen3_hub_id(source: ModelSource) -> str | None:
     return source.hub_id
 
 
+def looks_like_filesystem_path(value: str) -> bool:
+    """True when ``value`` is a path-like string, not an HF Hub repo id."""
+    if not value:
+        return False
+    if value.startswith(("/", "~", ".")):
+        return True
+    p = Path(value)
+    if p.is_absolute() or len(p.parts) > 1 and p.parts[0] in ("", ".", ".."):
+        return True
+    # Existing local directory passed as --model
+    try:
+        return Path(value).expanduser().is_dir()
+    except OSError:
+        return False
+
+
+def safe_get_model_meta(model_name: str | None) -> Any | None:
+    """Return MTEB ModelMeta or None.
+
+    ``mteb.get_model_meta`` raises ``KeyError`` when the name is absent from the
+    registry (including local filesystem paths). Callers that want a soft miss
+    must use this helper.
+    """
+    if not model_name or looks_like_filesystem_path(model_name):
+        return None
+    import mteb
+
+    try:
+        return mteb.get_model_meta(model_name)
+    except KeyError:
+        logger.debug("No MTEB registry entry for %r", model_name)
+        return None
+
+
 def ensure_mteb_model_meta(
     model: Any,
     *,
@@ -194,10 +230,10 @@ def ensure_mteb_model_meta(
         if name and revision:
             return model
 
-    import mteb
     from mteb.models.model_meta import ModelMeta
 
-    meta = mteb.get_model_meta(hub_id) if hub_id else None
+    registry_id = None if (hub_id and looks_like_filesystem_path(hub_id)) else hub_id
+    meta = safe_get_model_meta(registry_id)
     if meta is not None:
         model.mteb_model_meta = meta.model_copy(deep=True)
         logger.info(
@@ -208,7 +244,11 @@ def ensure_mteb_model_meta(
         return model
 
     empty = ModelMeta.create_empty()
-    name = hub_id or fallback_name or empty.name
+    # Prefer a Hub-style name for the result cache; never use a bare local path
+    # as the registry lookup key (already handled above).
+    name = registry_id or fallback_name or empty.name
+    if looks_like_filesystem_path(str(name)):
+        name = Path(str(name)).name or empty.name
     model.mteb_model_meta = empty.model_copy(
         update={
             "name": name,
@@ -281,9 +321,7 @@ def load_qwen3_local(
         st_kwargs["model_kwargs"] = model_kwargs
 
     if resolved_hub:
-        import mteb
-
-        meta = mteb.get_model_meta(resolved_hub)
+        meta = safe_get_model_meta(resolved_hub)
         if meta is not None:
             revision = meta.revision or "no_revision_available"
             logger.info(
@@ -403,7 +441,6 @@ def load_embedding_model(
     model_kwargs: dict[str, Any] | None = None,
 ) -> Any:
     """Load an embedding model from Hub or local path."""
-    import mteb
     from sentence_transformers import SentenceTransformer
 
     hf_kwargs = build_hf_model_kwargs(
@@ -422,7 +459,7 @@ def load_embedding_model(
         st_kwargs["model_kwargs"] = hf_kwargs
 
     if not source.is_local:
-        meta = mteb.get_model_meta(source.path)
+        meta = safe_get_model_meta(source.path)
         if meta is not None:
             logger.info("Loading Hub model via MTEB registry: %s", source.path)
             return meta.load_model(device=device, **st_kwargs)

@@ -144,6 +144,33 @@ def test_resolve_model_path_convenience_dir(tmp_path: Path):
 
     source = resolve_model_source(model=str(model_dir), model_path=None, hub_id=None)
     assert source.is_local is True
+    # Local dirs must not set hub_id to the filesystem path (MTEB registry KeyError).
+    assert source.hub_id is None
+
+
+def test_safe_get_model_meta_local_path_returns_none(tmp_path: Path):
+    from mteb_eval.model_loader import safe_get_model_meta
+
+    assert safe_get_model_meta(str(tmp_path)) is None
+    assert safe_get_model_meta("/data/models/qwen3-0.6b") is None
+    meta = safe_get_model_meta("Qwen/Qwen3-Embedding-0.6B")
+    assert meta is not None
+    assert meta.name == "Qwen/Qwen3-Embedding-0.6B"
+
+
+def test_ensure_mteb_model_meta_local_path_no_keyerror(tmp_path: Path):
+    """Regression: local --model path used to raise Model '<path>' not found in MTEB registry."""
+    from mteb_eval.model_loader import ensure_mteb_model_meta
+
+    model = SimpleNamespace(mteb_model_meta=None)
+    ensure_mteb_model_meta(
+        model,
+        hub_id=str(tmp_path / "my-model"),
+        fallback_name=str(tmp_path / "my-model"),
+    )
+    assert model.mteb_model_meta is not None
+    assert model.mteb_model_meta.name == "my-model"
+    assert model.mteb_model_meta.revision
 
 
 def test_model_and_model_path_mutually_exclusive(tmp_path: Path):
