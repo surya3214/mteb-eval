@@ -192,6 +192,7 @@ Manifest: [`mteb_eval/manifests/eng_v2_sts_retrieval.json`](mteb_eval/manifests/
 --output-dir               Results + summary.json + summary.csv + language CSVs (required)
 --batch-size / --query-batch-size / --corpus-batch-size
 --max-seq-len              Default: 512 (truncation cap for long inputs like STS22)
+--processing-kwargs / --no-processing-kwargs  Default: on (pass max_seq_len via ST encode kwargs)
 --query-prefix             Optional query prefix (SentenceTransformer `prompts['query']`)
 --document-prefix          Optional document/passage prefix (`prompts['document']`)
 --device                   cuda, cpu, mps
@@ -341,6 +342,7 @@ Shell wrapper: [`scripts/evaluate_parallel.sh`](scripts/evaluate_parallel.sh).
 - **STS22 OOM on long news articles:** Lower `--batch-size` (4–16 for large models) and/or reduce `--max-seq-len` (default 512). GPU memory is released between tasks via `gc.collect()` and `torch.cuda.empty_cache()`. Try `--dtype bfloat16` on Ampere+ GPUs to free VRAM.
 - **bf16 vs fp32 scores:** `--dtype bfloat16` can produce tiny score deltas vs float32; still a valid MTEB run, but not bit-identical.
 - **FlashAttention-2 failures:** Only use `--attn-implementation flash_attention_2` when FA2/kernels are installed and the model supports it. Prefer the default `sdpa`.
+- **`processing_kwargs` encode errors:** Some models reject extra SentenceTransformer encode kwargs (`SentenceTransformer.encode() ... ['processing_kwargs']`). Re-run with `--no-processing-kwargs`; `--max-seq-len` still applies via `model.max_seq_length`.
 - **`Missing shard summary` with `evaluate_parallel` + `mteb-eval-all`:** Fixed by propagating preset `task_types` to GPU workers. Pull the latest toolkit; empty `.shards/gpu*/` without `summary.json` usually means a worker crashed during task resolution.
 
 ## Tests
